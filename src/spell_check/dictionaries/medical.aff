@@ -1,0 +1,27 @@
+SET UTF-8
+TRY esianrtolcdugmphbyfvkwz
+
+# Split words at hyphens and check each part independently (this is Hunspell's
+# default behaviour, made explicit here). It lets repetitive hyphenated
+# compounds such as "cytokine-induced" be accepted from their parts
+# ("cytokine" + "induced") without storing every combination, mirroring how the
+# base en_US dictionary handles hyphenation.
+BREAK 3
+BREAK -
+BREAK ^-
+BREAK -$
+
+# Minimal affix rules for the supplemental medical word list. A simple
+# pluralisation suffix (flag S) is provided so e.g. "statins"/"troponins" are
+# accepted, plus a genitive suffix (flag M) for the possessive "'s" form (e.g.
+# "Tourette's", "Towne's"); the full English affix machinery lives in en_US.aff.
+# Keep this file intentionally small. The S and M rule lines are intentionally
+# identical to en_US.aff so the two dictionaries inflect consistently.
+SFX S Y 4
+SFX S   y     ies        [^aeiou]y
+SFX S   0     s          [aeiou]y
+SFX S   0     es         [sxzh]
+SFX S   0     s          [^sxzhy]
+
+SFX M Y 1
+SFX M   0     's          .

@@ -1,0 +1,33 @@
+[package]
+name = "egui_spellcheck"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+authors = ["Shawn Tocidlowski"]
+description = "Embedded spell-checking and optional grammar hints for egui text editors"
+readme = "README.md"
+repository = "https://github.com/stocidlowski/egui_spellcheck"
+keywords = ["spelling", "spellcheck", "grammar", "egui"]
+categories = ["text-processing", "text-editors", "gui"]
+exclude = ["target/", ".github/"]
+
+
+
+
+[features]
+# Grammar checking via the `harper-core` crate. Enabled by default; opt out with
+# `--no-default-features` (the crate is heavy, so disabling it lightens builds
+# that don't need grammar checks).
+default = ["grammar"]
+grammar = ["dep:harper-core"]
+medical = []
+
+[dependencies]
+spellbook = "0.4.2"
+serde = { version = "1.0.228", features = ["derive"] }
+egui = "0.34.3"
+log = "0.4.32"
+harper-core = { version = "2.5.0", optional = true }
+
+[dev-dependencies]
+eframe = { version = "0.34.3", default-features = false, features = ["default_fonts", "glow"] }
