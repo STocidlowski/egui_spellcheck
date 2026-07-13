@@ -5,6 +5,28 @@ text-editing widget with embedded Hunspell spelling dictionaries and optional
 grammar hints. It works without native FFI, runtime file access, or network
 access, which makes it suitable for desktop and WebAssembly applications.
 
+[`SpellCheckTextEdit`] mirrors `egui::TextEdit`'s builder-style API while
+underlining misspelled words and offering suggestions in its context menu.
+
+## Example
+```no_run
+use egui_spellcheck::SpellCheckTextEdit;
+fn note_editor(ui: &mut egui::Ui, note: &mut String) {
+    egui::CentralPanel::default().show(ui, |ui| {
+        SpellCheckTextEdit::multiline(note)
+            .hint_text("Clinical note")
+            .desired_width(f32::INFINITY)
+            .desired_rows(8)
+            .show(ui);
+    });
+}
+```
+
+Enable the default `grammar` feature for grammar hints, the optional
+`medical` feature for bundled medical terminology, or use
+`default-features = false` to build a spelling-only widget.
+
+
 ## Features
 
 - A `TextEdit`-style builder API for single-line and multi-line editors.

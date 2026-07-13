@@ -523,9 +523,17 @@ struct GrammarSpan {
 /// suggestions; it never edits the text. Only `ReplaceWith` suggestions are
 /// surfaced (a concrete alternative the clinician can click); `Remove`/
 /// `InsertAfter` fixes are intentionally left out to keep the menu unambiguous.
+///
+/// harper's curated set includes its own per-word spell checker
+/// ([`LintKind::Spelling`]), which uses a general-English dictionary that does
+/// not know the medical vocabulary our spellbook/medical dictionaries accept
+/// (e.g. it flags `Quantiferon` with "Did you mean to spell ... this way?").
+/// Spelling is entirely the responsibility of the spelling path here, so we drop
+/// harper's `Spelling`-kind lints to avoid double-checking and false positives
+/// on words our dictionaries already treat as correct.
 #[cfg(feature = "grammar")]
 fn grammar_spans(text: &str) -> Vec<GrammarSpan> {
-    use harper_core::linting::{LintGroup, Linter, Suggestion};
+    use harper_core::linting::{LintGroup, LintKind, Linter, Suggestion};
     use harper_core::parsers::PlainEnglish;
     use harper_core::spell::FstDictionary;
     use harper_core::{Dialect, Document};
@@ -552,6 +560,12 @@ fn grammar_spans(text: &str) -> Vec<GrammarSpan> {
 
     let mut spans = Vec::new();
     for lint in lints {
+        // Spelling is handled by the spelling path (spellbook + medical/personal
+        // dictionaries); skip harper's own per-word spell checker so it can't
+        // flag medical terms our dictionaries already accept.
+        if lint.lint_kind == LintKind::Spelling {
+            continue;
+        }
         let (Some(start), Some(end)) = (byte_at(lint.span.start), byte_at(lint.span.end)) else {
             // Out-of-range span (stale/odd lint); skip rather than risk a panic.
             continue;
@@ -1592,6 +1606,30 @@ mod tests {
         assert!(
             grammar_spans("The patient is stable.").is_empty(),
             "well-formed sentence should produce no grammar lints"
+        );
+    }
+
+    #[cfg(feature = "grammar")]
+    #[test]
+    fn grammar_ignores_spelling_of_unknown_words() {
+        // harper's own per-word spell checker doesn't know medical terms like
+        // "Quantiferon" and would emit a Spelling lint ("Did you mean to spell
+        // ... this way?"). Spelling is the spelling path's job, so the grammar
+        // path must not flag it. (The word is spelled correctly here; only the
+        // surrounding sentence is otherwise clean.)
+        assert!(
+            grammar_spans("Quantiferon negative.").is_empty(),
+            "grammar path must not surface spelling lints for unknown words"
+        );
+    }
+
+    #[cfg(feature = "grammar")]
+    #[test]
+    fn grammar_still_flags_real_errors() {
+        // Dropping Spelling-kind lints must not suppress genuine grammar issues.
+        assert!(
+            !grammar_spans("This is an test.").is_empty(),
+            "non-spelling grammar errors must still be reported"
         );
     }
 
