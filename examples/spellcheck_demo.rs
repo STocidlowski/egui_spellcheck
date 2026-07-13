@@ -2,6 +2,11 @@ use eframe::egui;
 use egui_spellcheck::SpellCheckTextEdit;
 
 fn main() -> eframe::Result<()> {
+    // Build the spelling/grammar engines on a background thread up front so the
+    // first check doesn't freeze the UI while harper's grammar dictionary and
+    // the spellbook word lists are constructed.
+    egui_spellcheck::prewarm();
+
     eframe::run_native(
         "egui_spellcheck demo",
         eframe::NativeOptions::default(),
@@ -18,7 +23,7 @@ impl Default for SpellcheckDemo {
     fn default() -> Self {
         Self {
             title: "Follow-up note".to_owned(),
-            note: "The patient are feeling nausia after taking metformin. Reviewed labs, Quantaferon negative.\n\nRight-click an underlined word to see spelling or grammar suggestions.".to_owned(),
+            note: "They is feeling nausia after taking metformin. Reviewed labs, Quantaferon negative.\n\nRight-click an underlined word to see spelling or grammar suggestions.".to_owned(),
         }
     }
 }

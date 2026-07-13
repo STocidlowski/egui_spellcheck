@@ -2,4 +2,4 @@
 
 mod spell_check;
 
-pub use spell_check::SpellCheckTextEdit;
+pub use spell_check::{prewarm, SpellCheckTextEdit};

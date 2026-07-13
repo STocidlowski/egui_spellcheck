@@ -96,6 +96,69 @@ fn medical_dictionary() -> Option<&'static Dictionary> {
     .as_ref()
 }
 
+/// Synchronously builds every (process-wide, lazily-initialized) checking
+/// engine so their one-time construction cost is paid here rather than on the
+/// first UI check. This forces:
+/// * the spellbook base (`en_US`) dictionary,
+/// * the supplemental medical dictionary (when the `medical-en` feature is on),
+/// * harper's curated grammar dictionary (when the `grammar` feature is on) --
+///   the dominant startup cost, since harper unpacks a large embedded FST on
+///   first use.
+///
+/// Each engine caches into a process-wide `OnceLock` (or harper's internal
+/// memo), so calling this from any thread populates the same shared instance
+/// the widget later reads. Nothing built here crosses a thread boundary, so it
+/// is safe even though harper's linter is `!Send`.
+fn warm_engines() {
+    let _ = dictionary();
+    #[cfg(feature = "medical-en")]
+    let _ = medical_dictionary();
+    #[cfg(feature = "grammar")]
+    let _ = grammar_spans("warm up");
+}
+
+/// Kicks off building the spelling and grammar engines on a background thread so
+/// the first spell/grammar check in the UI doesn't stall while the (large)
+/// harper grammar dictionary and the spellbook word lists are constructed.
+///
+/// Call this once at application startup (e.g. from the first frame or before
+/// entering the event loop). It returns immediately; by the time the user pauses
+/// typing and the debounced check fires, the shared engines are typically
+/// already built, so the check just performs fast lookups instead of freezing
+/// the UI for several seconds.
+///
+/// The call is idempotent: only the first invocation performs the warm-up;
+/// later calls are no-ops. It is also harmless if the engines were already built
+/// on demand -- the underlying builds are cached and never repeated.
+///
+/// On native targets the warm-up runs on a background thread. On `wasm32` there
+/// is no background thread to offload to (and `std::thread::spawn` panics on
+/// `wasm32-unknown-unknown`), so the engines are built eagerly on the calling
+/// thread instead.
+pub fn prewarm() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    // Only the first caller performs the warm-up.
+    if STARTED.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    // On native targets, build the engines on a background thread so startup
+    // never blocks the UI.
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::thread::spawn(warm_engines);
+    }
+    // On wasm32 there is no background thread to offload to (and
+    // `std::thread::spawn` panics on `wasm32-unknown-unknown`), so build the
+    // engines eagerly on the current thread. This still pays the one-time cost
+    // at a predictable moment (startup) rather than stalling on the first check.
+    #[cfg(target_arch = "wasm32")]
+    {
+        warm_engines();
+    }
+}
+
 /// Per-user list of words the clinician has explicitly accepted ("Add to
 /// dictionary"). Persisted via egui's memory, which eframe flushes to local
 /// storage on the web (and the on-disk app state natively) when the
@@ -1382,6 +1445,32 @@ mod tests {
             medical_dictionary().is_some(),
             "embedded medical dictionary must load"
         );
+    }
+
+    #[test]
+    fn warm_engines_builds_all_engines() {
+        // Synchronous warm-up must leave every enabled engine ready so the first
+        // UI check just performs fast lookups instead of building on the spot.
+        warm_engines();
+        assert!(dictionary().is_some(), "base dictionary must be built");
+        #[cfg(feature = "medical-en")]
+        assert!(
+            medical_dictionary().is_some(),
+            "medical dictionary must be built"
+        );
+        #[cfg(feature = "grammar")]
+        assert!(
+            !grammar_spans("This is an test.").is_empty(),
+            "grammar engine must be usable after warm-up"
+        );
+    }
+
+    #[test]
+    fn prewarm_is_idempotent_and_safe() {
+        // Repeated calls must not panic; only the first spawns a warm-up thread,
+        // later calls are no-ops.
+        prewarm();
+        prewarm();
     }
 
     #[test]
