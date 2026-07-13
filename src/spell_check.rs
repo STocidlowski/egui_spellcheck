@@ -36,7 +36,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
 
-use egui::text::{LayoutJob, LayoutSection};
+use egui::text::{ByteIndex, LayoutJob, LayoutSection};
 use egui::{Color32, FontSelection, Response, Stroke, TextEdit, TextFormat, Ui};
 use serde::{Deserialize, Serialize};
 use spellbook::Dictionary;
@@ -409,7 +409,7 @@ fn build_layout_job_colored(
         if span.start > cursor {
             sections.push(LayoutSection {
                 leading_space: 0.0,
-                byte_range: cursor..span.start,
+                byte_range: ByteIndex(cursor)..ByteIndex(span.start),
                 format: base.clone(),
             });
         }
@@ -417,7 +417,7 @@ fn build_layout_job_colored(
         error.underline = Stroke::new(1.5, span.color);
         sections.push(LayoutSection {
             leading_space: 0.0,
-            byte_range: span.start..span.end,
+            byte_range: ByteIndex(span.start)..ByteIndex(span.end),
             format: error,
         });
         cursor = span.end;
@@ -425,7 +425,7 @@ fn build_layout_job_colored(
     if cursor < text.len() {
         sections.push(LayoutSection {
             leading_space: 0.0,
-            byte_range: cursor..text.len(),
+            byte_range: ByteIndex(cursor)..ByteIndex(text.len()),
             format: base.clone(),
         });
     }
@@ -460,8 +460,8 @@ fn apply_selection_background(job: &mut LayoutJob, start: usize, end: usize, col
     }
     let mut out: Vec<LayoutSection> = Vec::with_capacity(job.sections.len() + 2);
     for section in job.sections.drain(..) {
-        let s = section.byte_range.start;
-        let e = section.byte_range.end;
+        let s = section.byte_range.start.0;
+        let e = section.byte_range.end.0;
         // No overlap with the selection: keep the section untouched.
         if e <= start || s >= end {
             out.push(section);
@@ -471,7 +471,7 @@ fn apply_selection_background(job: &mut LayoutJob, start: usize, end: usize, col
         if s < start {
             out.push(LayoutSection {
                 leading_space: section.leading_space,
-                byte_range: s..start,
+                byte_range: ByteIndex(s)..ByteIndex(start),
                 format: section.format.clone(),
             });
         }
@@ -485,14 +485,14 @@ fn apply_selection_background(job: &mut LayoutJob, start: usize, end: usize, col
             } else {
                 0.0
             },
-            byte_range: s.max(start)..e.min(end),
+            byte_range: ByteIndex(s.max(start))..ByteIndex(e.min(end)),
             format: sel_format,
         });
         // Part of this section after the selection (plain).
         if e > end {
             out.push(LayoutSection {
                 leading_space: 0.0,
-                byte_range: end..e,
+                byte_range: ByteIndex(end)..ByteIndex(e),
                 format: section.format,
             });
         }
@@ -713,7 +713,7 @@ impl<'t> SpellCheckTextEdit<'t> {
 
     /// Stable id salt; needed when several widgets share the same parent id.
     #[must_use]
-    pub fn id_salt(mut self, salt: impl std::hash::Hash) -> Self {
+    pub fn id_salt(mut self, salt: impl std::hash::Hash + std::fmt::Debug) -> Self {
         self.id_salt = Some(egui::Id::new(salt));
         self
     }
@@ -874,7 +874,7 @@ impl<'t> SpellCheckTextEdit<'t> {
                 .and_then(|s| s.cursor.char_range())
                 .map(|r| {
                     let r = r.as_sorted_char_range();
-                    (r.start, r.end)
+                    (r.start.into(), r.end.into())
                 });
 
         let mut text_edit = if self.multiline {
@@ -935,7 +935,7 @@ impl<'t> SpellCheckTextEdit<'t> {
                 let byte = self
                     .text
                     .char_indices()
-                    .nth(ccursor.index)
+                    .nth(ccursor.index.into())
                     .map_or(len, |(b, _)| b);
                 cache
                     .spans
@@ -990,7 +990,7 @@ impl<'t> SpellCheckTextEdit<'t> {
                 let byte = self
                     .text
                     .char_indices()
-                    .nth(ccursor.index)
+                    .nth(ccursor.index.into())
                     .map_or(len, |(b, _)| b);
                 cache
                     .grammar_spans
@@ -1539,7 +1539,7 @@ mod tests {
         assert_eq!(job.text, "ab");
         // The whole text is covered by exactly one (base) section.
         assert_eq!(job.sections.len(), 1);
-        assert_eq!(job.sections[0].byte_range, 0..2);
+        assert_eq!(job.sections[0].byte_range, ByteIndex(0)..ByteIndex(2));
     }
 
     #[test]
@@ -1603,7 +1603,7 @@ mod tests {
         let job = build_layout_job(text, &bad, TextFormat::default(), 100.0);
         assert_eq!(job.text, text);
         assert_eq!(job.sections.len(), 1);
-        assert_eq!(job.sections[0].byte_range, 0..text.len());
+        assert_eq!(job.sections[0].byte_range, ByteIndex(0)..ByteIndex(text.len()));
     }
 
     #[test]
@@ -1616,9 +1616,9 @@ mod tests {
         apply_selection_background(&mut job, 0, 5, sel);
         assert_eq!(job.text, text);
         assert_eq!(job.sections.len(), 2);
-        assert_eq!(job.sections[0].byte_range, 0..5);
+        assert_eq!(job.sections[0].byte_range, ByteIndex(0)..ByteIndex(5));
         assert_eq!(job.sections[0].format.background, sel);
-        assert_eq!(job.sections[1].byte_range, 5..11);
+        assert_eq!(job.sections[1].byte_range, ByteIndex(5)..ByteIndex(11));
         assert_eq!(job.sections[1].format.background, Color32::TRANSPARENT);
     }
 
@@ -1631,11 +1631,11 @@ mod tests {
         let sel = Color32::from_rgb(10, 20, 30);
         apply_selection_background(&mut job, 2, 5, sel);
         assert_eq!(job.sections.len(), 3);
-        assert_eq!(job.sections[0].byte_range, 0..2);
+        assert_eq!(job.sections[0].byte_range, ByteIndex(0)..ByteIndex(2));
         assert_eq!(job.sections[0].format.background, Color32::TRANSPARENT);
-        assert_eq!(job.sections[1].byte_range, 2..5);
+        assert_eq!(job.sections[1].byte_range, ByteIndex(2)..ByteIndex(5));
         assert_eq!(job.sections[1].format.background, sel);
-        assert_eq!(job.sections[2].byte_range, 5..11);
+        assert_eq!(job.sections[2].byte_range, ByteIndex(5)..ByteIndex(11));
         assert_eq!(job.sections[2].format.background, Color32::TRANSPARENT);
     }
 

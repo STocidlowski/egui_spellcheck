@@ -25,7 +25,7 @@ impl Default for SpellcheckDemo {
 
 impl eframe::App for SpellcheckDemo {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("egui_spellcheck");
             ui.label("Edit the sample note, then right-click an underlined word for suggestions.");
 

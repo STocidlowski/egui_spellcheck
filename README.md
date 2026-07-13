@@ -13,7 +13,7 @@ access, which makes it suitable for desktop and WebAssembly applications.
 - Personal words persist in egui's storage; ignored words are kept for the
   current session.
 - An optional bundled medical word list, enabled once per application with the
-  `medical` feature.
+  `medical-en` feature.
 - Optional grammar checks, enabled by default with the `grammar` feature.
 - No automatic text replacement: users explicitly select every suggestion.
 
@@ -21,14 +21,14 @@ access, which makes it suitable for desktop and WebAssembly applications.
 
 ```toml
 [dependencies]
-egui_spellcheck = "0.1"
+egui_spellcheck = "0.35.0"
 ```
 
 To omit the optional grammar engine:
 
 ```toml
 [dependencies]
-egui_spellcheck = { version = "0.1", default-features = false }
+egui_spellcheck = { version = "0.35.0", default-features = false }
 ```
 
 ## Usage
@@ -77,7 +77,7 @@ Enable medical terminology for an application with:
 
 ```toml
 [dependencies]
-egui_spellcheck = { version = "0.1", features = ["medical"] }
+egui_spellcheck = { version = "0.35.0", features = ["medical-en"] }
 ```
 
 ## License

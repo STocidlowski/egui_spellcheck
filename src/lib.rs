@@ -10,8 +10,8 @@
 //! ```no_run
 //! use egui_spellcheck::SpellCheckTextEdit;
 //!
-//! fn note_editor(ctx: &egui::Context, note: &mut String) {
-//!     egui::CentralPanel::default().show(ctx, |ui| {
+//! fn note_editor(ui: &mut egui::Ui, note: &mut String) {
+//!     egui::CentralPanel::default().show(ui, |ui| {
 //!         SpellCheckTextEdit::multiline(note)
 //!             .hint_text("Clinical note")
 //!             .desired_width(f32::INFINITY)
