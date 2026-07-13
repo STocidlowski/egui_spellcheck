@@ -49,9 +49,9 @@ const EN_US_DIC: &str = include_str!("spell_check/dictionaries/en_US.dic");
 /// Supplemental medical word list (drug names, lab/test names, etc.) that the
 /// stock `en_US` dictionary doesn't know about. It is compiled only when the
 /// `medical` feature is enabled.
-#[cfg(feature = "medical")]
+#[cfg(feature = "medical-en")]
 const MEDICAL_AFF: &str = include_str!("spell_check/dictionaries/medical.aff");
-#[cfg(feature = "medical")]
+#[cfg(feature = "medical-en")]
 const MEDICAL_DIC: &str = include_str!("spell_check/dictionaries/medical.dic");
 
 /// Key under which the per-user personal word list is stored in egui's
@@ -83,7 +83,7 @@ fn dictionary() -> Option<&'static Dictionary> {
 
 /// Lazily built, cached supplemental medical dictionary. Built once on first
 /// use, just like the base dictionary.
-#[cfg(feature = "medical")]
+#[cfg(feature = "medical-en")]
 fn medical_dictionary() -> Option<&'static Dictionary> {
     static DICT: OnceLock<Option<Dictionary>> = OnceLock::new();
     DICT.get_or_init(|| match Dictionary::new(MEDICAL_AFF, MEDICAL_DIC) {
@@ -210,7 +210,7 @@ impl CheckContext {
             // Base dictionary failed to load: fail-open.
             None => return true,
         }
-        #[cfg(feature = "medical")]
+        #[cfg(feature = "medical-en")]
         if let Some(dict) = medical_dictionary() {
             if dict.check(word) {
                 return true;
@@ -222,11 +222,11 @@ impl CheckContext {
     /// Best-first suggestions for a misspelled `word`, drawing from the base
     /// dictionary and, when the `medical` feature is enabled, the medical list.
     fn suggestions(&self, word: &str) -> Vec<String> {
-        #[cfg(feature = "medical")]
+        #[cfg(feature = "medical-en")]
         let mut out = suggestions(word);
-        #[cfg(not(feature = "medical"))]
+        #[cfg(not(feature = "medical-en"))]
         let out = suggestions(word);
-        #[cfg(feature = "medical")]
+        #[cfg(feature = "medical-en")]
         if let Some(dict) = medical_dictionary() {
             let mut med = Vec::new();
             dict.suggest(word, &mut med);
@@ -1361,7 +1361,7 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "medical")]
+    #[cfg(feature = "medical-en")]
     #[test]
     fn medical_dictionary_loads() {
         assert!(
@@ -1411,7 +1411,7 @@ mod tests {
         assert_eq!(&text[spans[0].start..spans[0].end], "quik");
     }
 
-    #[cfg(feature = "medical")]
+    #[cfg(feature = "medical-en")]
     #[test]
     fn medical_feature_accepts_medical_words_without_widget_configuration() {
         // Derive the test word from the embedded medical list rather than

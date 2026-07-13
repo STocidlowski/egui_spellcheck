@@ -63,7 +63,7 @@ cargo run --example spellcheck_demo
 To also enable the bundled medical terminology, run:
 
 ```sh
-cargo run --example spellcheck_demo --features medical
+cargo run --example spellcheck_demo --features medical-en
 ```
 
 ## Feature flags

@@ -20,7 +20,7 @@ exclude = ["target/", ".github/"]
 # that don't need grammar checks).
 default = ["grammar"]
 grammar = ["dep:harper-core"]
-medical = []
+medical-en = []
 
 [dependencies]
 spellbook = "0.4.2"
