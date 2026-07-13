@@ -1,14 +1,25 @@
-Dictionaries
-These files are licensed separately from spellbook. See the '*license.txt'
-files in this directory.
+# Dictionaries
 
-# US English dictionary.
+These data files are licensed **separately** from the `egui_spellcheck` crate
+(which is MPL-2.0). See `THIRD_PARTY_NOTICES.md` at the repository root and the
+`*_license.*` files in this directory for the exact terms.
 
-en_US uses WordNet Release 2.1 license, 
+## US English dictionary
 
-Upstream <https://github.com/JetBrains/hunspell-dictionaries>
+- Files: `en_US.dic`, `en_US.aff`
+- Word list based on WordNet 2.1 / SCOWL.
+- Upstream: <https://github.com/JetBrains/hunspell-dictionaries>
+- Licenses: `en_US_license.txt`, `en_US_WordNet_license.txt`
 
-# US Medical LOINC dictionary
+## US Medical dictionary
 
-Derived from LOINC (Logical Observation Identifiers Names and Codes) dictionary with custom parsing.
-
+- Files: `medical.dic`, `medical.aff`
+- A **generated** supplemental clinical word list (see
+  `src/medical_dictionary_generator/`), derived from the **UMLS Metathesaurus**.
+- The **public build shipped here** uses only freely redistributable sources:
+  **RxNorm**, **ICD-10-CM**, and **HPO** (Human Phenotype Ontology).
+- Restrictively licensed sources such as **SNOMED CT** and **MedDRA** are
+  **not** included in this file; they can be enabled only via the generator's
+  `--include-licensed` switch for personal / authorized use, and such a build
+  must not be redistributed.
+- License & attributions: `medical_license.md`.

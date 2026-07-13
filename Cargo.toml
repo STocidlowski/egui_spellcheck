@@ -7,8 +7,11 @@ authors = ["Shawn Tocidlowski"]
 description = "Embedded spell-checking and optional grammar hints for egui text editors"
 readme = "README.md"
 repository = "https://github.com/stocidlowski/egui_spellcheck"
+license = "MPL-2.0"
 keywords = ["spelling", "spellcheck", "grammar", "egui"]
 categories = ["text-processing", "text-editors", "gui"]
+# The bundled dictionary data under src/spell_check/dictionaries is licensed
+# separately from this crate's MPL-2.0 code; see THIRD_PARTY_NOTICES.md.
 exclude = ["target/", ".github/"]
 
 

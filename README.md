@@ -80,13 +80,29 @@ Enable medical terminology for an application with:
 egui_spellcheck = { version = "0.1", features = ["medical"] }
 ```
 
+## License
+
+The `egui_spellcheck` **source code** is licensed under the
+[Mozilla Public License 2.0](LICENSE) (`MPL-2.0`), a file-level copyleft
+license: modifications to MPL-covered files must be shared under the MPL, but
+the crate can be combined with proprietary code in a larger work.
+
 ## Dictionary data and licensing
 
-The bundled `en_US` Hunspell dictionary is sourced from the
-[`spellbook` project](https://github.com/helix-editor/spellbook). Before the
-first public release, document the applicable upstream dictionary license and
-the provenance and license of the bundled medical word list in a third-party
-notice. This crate's own license must also be selected before publication.
+The bundled dictionary data files (under
+`src/spell_check/dictionaries/`) are **licensed separately** from the crate's
+MPL-2.0 code. Full provenance and the applicable licenses are documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md):
+
+- **`en_US`** Hunspell dictionary — WordNet 2.1 / SCOWL based; see the included
+  license files.
+- **`medical`** word list — **generated** from the **UMLS Metathesaurus**. The
+  publicly bundled build uses only freely redistributable sources (**RxNorm**,
+  **ICD-10-CM**, **HPO**), each with its required attribution. Restrictively
+  licensed UMLS sources such as **SNOMED CT** and **MedDRA** are deliberately
+  excluded from the published dictionary; they can be added only via the
+  generator's `--include-licensed` switch for personal / authorized use, and a
+  dictionary built that way must not be redistributed.
 
 ## Development
 

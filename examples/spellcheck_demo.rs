@@ -18,7 +18,7 @@ impl Default for SpellcheckDemo {
     fn default() -> Self {
         Self {
             title: "Follow-up note".to_owned(),
-            note: "The patient are feeling nausia after taking metformin.\n\nRight-click an underlined word to see spelling or grammar suggestions.".to_owned(),
+            note: "The patient are feeling nausia after taking metformin. Reviewed labs, Quantaferon negative.\n\nRight-click an underlined word to see spelling or grammar suggestions.".to_owned(),
         }
     }
 }

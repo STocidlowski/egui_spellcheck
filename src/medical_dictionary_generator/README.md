@@ -50,7 +50,16 @@ python main.py --no-must-have         # don't re-add the curated clinical terms
 python main.py --mrsty-file ""         # disable the organism/taxonomy filter
 python main.py --include-sab all      # accept ALL sources (huge list)
 python main.py --include-sab "SNOMEDCT_US,RXNORM,MSH"  # custom source set
+python main.py --include-licensed     # ALSO add SNOMED CT + MedDRA (see licensing)
+python main.py --rxnorm-location "D:\path\to\rxnorm\rrf"  # add standalone RxNorm (RXNCONSO.RRF)
 ```
+
+> ⚖️ **Licensing:** by default the generator keeps only freely redistributable
+> sources (`RXNORM`, `ICD10CM`, `HPO`), so the output can be published. The
+> `--include-licensed` switch additionally pulls in restrictively licensed
+> sources (`SNOMEDCT_US`, `MDR`); a dictionary built that way is a derivative of
+> licensed content, is for personal / authorized use only, and **must not be
+> redistributed**. See the repository-root `THIRD_PARTY_NOTICES.md`.
 
 > ⚠️ **`UMLS_LOCATION` is hard-coded** at the top of `main.py` to a local
 > absolute path. Override it with `--umls-location` on any other machine.
@@ -177,14 +186,22 @@ These are heuristics tuned to avoid dropping real words (`well-being`,
 `Pro-American`, `phenylalanine`). Edge cases are possible — adjust the
 `AMINO_ACID_*` sets if false positives/negatives appear.
 
-### 7. Source (`SAB`) allow-list — the biggest single lever
-`INCLUDED_SAB` (in `main.py`) keeps only a curated, high-yield clinical set of
-source vocabularies: **`SNOMEDCT_US`, `RXNORM`, `ICD10CM`, `MDR`, `HPO`**. UMLS
-aggregates ~100 sources; most are low-yield for dictation. The **NCBI Taxonomy**
-(`SAB=NCBI`) alone is ~377k species names — excluding it is the largest cut.
-Override with `--include-sab "A,B,C"`, or `--include-sab all` for every source
-(produces a much larger list). Adding `MSH`/`NCI` roughly doubles the count, so
-they're left out of the default to stay clinician-focused and under ~100k.
+### 7. Source (`SAB`) allow-list — the biggest single lever (and the licensing lever)
+The source vocabularies are split by **redistribution rights** (in `main.py`):
+
+- **`FREE_SAB`** (the default `INCLUDED_SAB`): freely redistributable sources —
+  **`RXNORM`, `ICD10CM`, `HPO`**. The output built from these can be published
+  (it ships in the repo under the crate's MPL-2.0 code license).
+- **`LICENSED_SAB`**: restrictively licensed sources — **`SNOMEDCT_US`, `MDR`**
+  (MedDRA). Enabled only with `--include-licensed`; the resulting dictionary is
+  a derivative of licensed content and **must not be redistributed**.
+
+UMLS aggregates ~100 sources; most are low-yield for dictation. The **NCBI
+Taxonomy** (`SAB=NCBI`) alone is ~377k species names — excluding it is the
+largest cut. Override the set with `--include-sab "A,B,C"`, or `--include-sab
+all` for every source. Note that most non-free sources (`MSH`, `NCI`, `LOINC`,
+…) carry their own restrictive licenses — check before publishing any output
+built from them.
 
 ### 8. Organism / taxonomy filter via `MRSTY.RRF`
 Even within the allowed sources, `SNOMEDCT_US` carries an *organism* hierarchy

@@ -17,6 +17,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from itertools import chain, islice
 from typing import Iterable, Iterator, Optional
 
 from enums import (
@@ -310,27 +311,55 @@ EXCLUDED_TTY = {
 # record level (the source), which is far more reliable than trying to pattern
 # match obscure terms one by one.
 #
-# Kept sources (rationale):
-#   SNOMEDCT_US - the core US clinical terminology: findings, disorders,
-#                 procedures, body structures, common organisms. The backbone.
-#   RXNORM      - normalised clinical drug / ingredient / brand names.
-#   ICD10CM     - billable diagnosis names a clinician dictates.
-#   MDR         - MedDRA: clinical signs/symptoms and adverse-event terms.
-#   HPO         - Human Phenotype Ontology: clinical phenotype descriptions.
+# LICENSING NOTE (read before changing these sets):
+# The source vocabularies are split into two groups by *redistribution* rights,
+# because the generated word list is a derivative of the source content:
 #
-# Deliberately excluded examples: NCBI (taxonomy/species), NCI & MSH (large,
-# research-/chemical-heavy thesauri that push the list well past the target
-# size), LNC/LOINC (verbose lab strings), GO/HGNC (gene/molecular biology),
+#   FREE_SAB     - sources that may be freely redistributed (the derived word
+#                  list can ship publicly, e.g. bundled in this repository under
+#                  the project's MPL-2.0 code license). These are UMLS "category
+#                  0" style vocabularies with no additional downstream fees or
+#                  affiliate agreements:
+#                    RXNORM  - normalised clinical drug/ingredient/brand names
+#                              (NLM; also available as a standalone, fully free
+#                              RxNorm release, see --rxnorm-location).
+#                    ICD10CM - billable diagnosis names (US CDC/NCHS, public
+#                              domain in the United States).
+#                    HPO     - Human Phenotype Ontology clinical phenotype
+#                              descriptions (permissive HPO license, attribution
+#                              required).
+#
+#   LICENSED_SAB - clinically valuable but RESTRICTIVELY licensed sources whose
+#                  content (and therefore any derived word list) may NOT be
+#                  redistributed without a separate agreement. These are opt-in
+#                  only, via --include-licensed, and the resulting dictionary is
+#                  for personal / authorized use and MUST NOT be published:
+#                    SNOMEDCT_US - SNOMED CT US Edition. Requires a SNOMED CT
+#                                  Affiliate License (free for use within UMLS
+#                                  in Member territories, but redistribution is
+#                                  governed by SNOMED International).
+#                    MDR         - MedDRA. Requires a MedDRA subscription from
+#                                  the MSSO; redistribution is prohibited.
+#
+# Deliberately excluded examples (available via --include-sab): NCBI
+# (taxonomy/species), NCI & MSH (large, research-/chemical-heavy thesauri),
+# LNC/LOINC (verbose lab strings), GO/HGNC (gene/molecular biology),
 # OMIM/ORPHANET (rare-disease catalogues), plus dozens of small single-source
-# synonym sets. These can be re-enabled via --include-sab if a broader (larger)
-# list is wanted.
-INCLUDED_SAB = {
-    "SNOMEDCT_US",
+# synonym sets. Note that many of these carry their own restrictive licenses.
+FREE_SAB = {
     "RXNORM",
     "ICD10CM",
-    "MDR",
     "HPO",
 }
+
+LICENSED_SAB = {
+    "SNOMEDCT_US",
+    "MDR",
+}
+
+# Default allow-list: only the freely redistributable sources, so the bundled
+# output can be published. Enable the licensed sources with --include-licensed.
+INCLUDED_SAB = set(FREE_SAB)
 
 
 # A curated allow-list of high-yield clinical terms that MUST be present in the
@@ -1028,13 +1057,37 @@ def generate(
     dedup_genitives: bool = True,
     ensure_must_have: bool = True,
     included_sab: Optional[set[str]] = None,
+    include_licensed: bool = False,
     mrsty_file: Optional[str] = MRSTY_FILE,
+    extra_sources: Optional[Iterable[str]] = None,
 ) -> tuple[str, str]:
-    """End-to-end generation of the medical Hunspell/MySpell dictionary."""
-    source = os.path.join(umls_location, mrconso_file)
-    logger.info("Parsing %s", source)
+    """End-to-end generation of the medical Hunspell/MySpell dictionary.
+
+    ``included_sab`` selects the source vocabularies to keep; ``None`` uses the
+    freely redistributable default (:data:`FREE_SAB`). ``include_licensed`` adds
+    the restrictively licensed sources (:data:`LICENSED_SAB`, e.g. SNOMED CT and
+    MedDRA); the resulting word list is a derivative of licensed content and
+    MUST NOT be redistributed. ``extra_sources`` is an optional list of extra
+    ``*CONSO.RRF`` file paths to parse in addition to the UMLS ``MRCONSO.RRF``
+    (e.g. a standalone RxNorm ``RXNCONSO.RRF``); every source shares the same
+    18-column layout.
+    """
+    sources = [os.path.join(umls_location, mrconso_file)]
+    if extra_sources:
+        sources.extend(extra_sources)
+    for source in sources:
+        logger.info("Parsing %s", source)
     if included_sab is None:
-        included_sab = INCLUDED_SAB
+        included_sab = set(FREE_SAB)
+    if include_licensed and included_sab:
+        # Union in the restrictive sources. If included_sab is empty ("all"),
+        # every source is already accepted so there is nothing to add.
+        included_sab = included_sab | LICENSED_SAB
+        logger.warning(
+            "Including LICENSED sources (%s); the output is a derivative of "
+            "restrictively licensed content and MUST NOT be redistributed.",
+            ", ".join(sorted(LICENSED_SAB)),
+        )
     logger.info(
         "Including %s source(s): %s",
         len(included_sab) if included_sab else "all",
@@ -1045,8 +1098,11 @@ def generate(
         # Drop taxonomy / organism concepts (species of bacteria, fungi, etc.).
         exclude_cuis = load_excluded_cuis(os.path.join(umls_location, mrsty_file))
         logger.info("Excluding %d organism/taxonomy concepts (via MRSTY)", len(exclude_cuis))
+    concepts = chain.from_iterable(iter_concepts(src) for src in sources)
+    if limit is not None:
+        concepts = islice(concepts, limit)
     words = build_word_set(
-        iter_concepts(source, limit=limit),
+        concepts,
         included_sab=included_sab,
         exclude_cuis=exclude_cuis,
     )
@@ -1206,9 +1262,39 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         default=None,
         help=(
             "Comma-separated source vocabularies (SAB) to keep (default: the "
-            "curated INCLUDED_SAB clinical set). Pass 'all' to accept every "
-            "source."
+            "freely redistributable FREE_SAB set: "
+            + ", ".join(sorted(FREE_SAB))
+            + "). Pass 'all' to accept every source. NOTE: many other sources "
+            "carry restrictive licenses; only publish output built from freely "
+            "redistributable sources."
         ),
+    )
+    parser.add_argument(
+        "--include-licensed",
+        dest="include_licensed",
+        action="store_true",
+        help=(
+            "Also include the restrictively licensed sources ("
+            + ", ".join(sorted(LICENSED_SAB))
+            + "). Requires the appropriate SNOMED CT Affiliate / MedDRA "
+            "licenses. The resulting dictionary is a derivative of licensed "
+            "content and MUST NOT be redistributed (personal / authorized use "
+            "only)."
+        ),
+    )
+    parser.add_argument(
+        "--rxnorm-location",
+        default=None,
+        help=(
+            "Optional directory containing a standalone RxNorm release "
+            "(RXNCONSO.RRF). When given, its concepts are parsed in addition "
+            "to the UMLS MRCONSO.RRF. RxNorm is fully free to redistribute."
+        ),
+    )
+    parser.add_argument(
+        "--rxnorm-file",
+        default="RXNCONSO.RRF",
+        help="RxNorm concept file name inside --rxnorm-location (default: RXNCONSO.RRF).",
     )
     return parser.parse_args(argv)
 
@@ -1216,6 +1302,9 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = _parse_args()
+    extra_sources: list[str] = []
+    if args.rxnorm_location:
+        extra_sources.append(os.path.join(args.rxnorm_location, args.rxnorm_file))
     generate(
         umls_location=args.umls_location,
         mrconso_file=args.mrconso_file,
@@ -1229,5 +1318,7 @@ if __name__ == "__main__":
         dedup_genitives=args.dedup_genitives,
         ensure_must_have=args.ensure_must_have,
         included_sab=_parse_included_sab(args.include_sab),
+        include_licensed=args.include_licensed,
         mrsty_file=args.mrsty_file or None,
+        extra_sources=extra_sources or None,
     )

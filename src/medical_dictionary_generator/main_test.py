@@ -5,7 +5,9 @@ import tempfile
 
 from enums import UMLSLanguageOfTerm, UMLSSuppresssFlag, UMLSTermAbbreviation
 from main import (
+    FREE_SAB,
     INCLUDED_SAB,
+    LICENSED_SAB,
     MUST_HAVE_TERMS,
     ORGANISM_TUIS,
     _parse_included_sab,
@@ -120,10 +122,14 @@ def test_is_relevant_language_and_suppress():
 
 
 def test_is_relevant_sab_filter():
-    # By default only the curated clinical sources are kept.
+    # By default only the freely redistributable sources (FREE_SAB) are kept.
     snomed = parse_line(SNOMED_SAMPLE)
     assert snomed is not None and snomed.SAB == "SNOMEDCT_US"
-    assert is_relevant(snomed) is True
+    # SNOMED CT is a restrictively licensed source, excluded from the free
+    # default so the bundled output can be published.
+    assert is_relevant(snomed) is False
+    # ...but kept when the licensed sources are explicitly included.
+    assert is_relevant(snomed, included_sab=FREE_SAB | LICENSED_SAB) is True
     # A non-allow-listed source (NCBI taxonomy) is dropped by default...
     species = parse_line(NCBI_SPECIES)
     assert species is not None and species.SAB == "NCBI"
@@ -147,15 +153,17 @@ def test_is_relevant_drops_chemical_tty():
 def test_is_relevant_drops_abbreviation_and_obsolete_tty():
     # Abbreviations/acronyms/short forms and obsolete content are dropped even
     # when English and non-suppressed.
+    # included_sab=set() isolates the TTY check from the SAB allow-list (the
+    # fixtures are SNOMEDCT_US, a licensed source outside the free default).
     ab = parse_line(ABBREVIATION_AB)
     assert ab is not None
     assert ab.TTY == UMLSTermAbbreviation.AB
-    assert is_relevant(ab) is False
+    assert is_relevant(ab, included_sab=set()) is False
 
     oet = parse_line(OBSOLETE_OET)
     assert oet is not None
     assert oet.TTY == UMLSTermAbbreviation.OET
-    assert is_relevant(oet) is False
+    assert is_relevant(oet, included_sab=set()) is False
 
 
 def test_extract_words_filters_numbers_and_punctuation():
@@ -258,9 +266,11 @@ def test_build_word_set_skips_irrelevant():
 
 
 def test_build_word_set_applies_sab_filter():
-    # With the default SAB allow-list, only words from included sources survive.
+    # With an allow-list, only words from included sources survive. SNOMEDCT_US
+    # is a licensed source, so it is added explicitly here to exercise the
+    # keep-branch alongside the dropped sources.
     concepts = [parse_line(SNOMED_SAMPLE), parse_line(NCBI_SPECIES), parse_line(SAMPLE)]
-    words = build_word_set(concepts)
+    words = build_word_set(concepts, included_sab=FREE_SAB | LICENSED_SAB)
     assert "Atrial" in words and "fibrillation" in words  # SNOMEDCT_US, kept
     assert "Escherichia" not in words  # NCBI species name, dropped
     assert "coli" not in words
@@ -290,7 +300,11 @@ def test_build_word_set_excludes_organism_cuis():
         "3092008|Bacillus cereus|0|N|256|"
     )
     concepts = [parse_line(SNOMED_SAMPLE), parse_line(organism)]
-    words = build_word_set(concepts, exclude_cuis={"C0085496"})
+    words = build_word_set(
+        concepts,
+        included_sab=FREE_SAB | LICENSED_SAB,
+        exclude_cuis={"C0085496"},
+    )
     assert "fibrillation" in words            # clinical concept kept
     assert "Bacillus" not in words            # organism CUI dropped
     assert "cereus" not in words
@@ -453,7 +467,15 @@ def test_parse_included_sab():
     assert _parse_included_sab("MSH, NCI ,RXNORM") == {"MSH", "NCI", "RXNORM"}
     # The default allow-list excludes the taxonomy source.
     assert "NCBI" not in INCLUDED_SAB
-    assert "SNOMEDCT_US" in INCLUDED_SAB
+    # The default is the freely redistributable set; the restrictively licensed
+    # sources (SNOMED CT, MedDRA) are opt-in only via --include-licensed.
+    assert INCLUDED_SAB == FREE_SAB
+    assert "RXNORM" in INCLUDED_SAB
+    assert "SNOMEDCT_US" not in INCLUDED_SAB
+    assert "SNOMEDCT_US" in LICENSED_SAB
+    assert "MDR" in LICENSED_SAB
+    # Free and licensed sets must not overlap.
+    assert FREE_SAB.isdisjoint(LICENSED_SAB)
 
 
 def test_write_dictionary_format():
