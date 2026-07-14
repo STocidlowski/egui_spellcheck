@@ -48,7 +48,7 @@ const EN_US_DIC: &str = include_str!("spell_check/dictionaries/en_US.dic");
 
 /// Supplemental medical word list (drug names, lab/test names, etc.) that the
 /// stock `en_US` dictionary doesn't know about. It is compiled only when the
-/// `medical` feature is enabled.
+/// `medical-en` feature is enabled.
 #[cfg(feature = "medical-en")]
 const MEDICAL_AFF: &str = include_str!("spell_check/dictionaries/medical.aff");
 #[cfg(feature = "medical-en")]
@@ -274,16 +274,16 @@ impl CheckContext {
             None => return true,
         }
         #[cfg(feature = "medical-en")]
-        if let Some(dict) = medical_dictionary() {
-            if dict.check(word) {
-                return true;
-            }
+        if let Some(dict) = medical_dictionary()
+            && dict.check(word)
+        {
+            return true;
         }
         false
     }
 
     /// Best-first suggestions for a misspelled `word`, drawing from the base
-    /// dictionary and, when the `medical` feature is enabled, the medical list.
+    /// dictionary and, when the `medical-en` feature is enabled, the medical list.
     fn suggestions(&self, word: &str) -> Vec<String> {
         #[cfg(feature = "medical-en")]
         let mut out = suggestions(word);
@@ -1730,7 +1730,10 @@ mod tests {
         let job = build_layout_job(text, &bad, TextFormat::default(), 100.0);
         assert_eq!(job.text, text);
         assert_eq!(job.sections.len(), 1);
-        assert_eq!(job.sections[0].byte_range, ByteIndex(0)..ByteIndex(text.len()));
+        assert_eq!(
+            job.sections[0].byte_range,
+            ByteIndex(0)..ByteIndex(text.len())
+        );
     }
 
     #[test]

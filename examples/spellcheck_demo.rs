@@ -1,4 +1,5 @@
 use eframe::egui;
+use egui::TextEdit;
 use egui_spellcheck::SpellCheckTextEdit;
 
 fn main() -> eframe::Result<()> {
@@ -38,7 +39,7 @@ impl eframe::App for SpellcheckDemo {
             ui.small("Medical terminology is enabled for this build.");
             #[cfg(not(feature = "medical-en"))]
             ui.small(
-                "Medical terminology is disabled. Run with `--features medical` to enable it.",
+                "Medical terminology is disabled. Run with `--features medical-en` to enable it.",
             );
 
             ui.add_space(12.0);
@@ -52,7 +53,16 @@ impl eframe::App for SpellcheckDemo {
             SpellCheckTextEdit::multiline(&mut self.note)
                 .hint_text("Write a note")
                 .desired_width(f32::INFINITY)
-                .desired_rows(12)
+                .desired_rows(8)
+                .id_salt("demo-note")
+                .show(ui);
+
+            ui.heading("Without Spellcheck (normal TextEdit::Multiline)");
+            ui.add_space(8.0);
+            TextEdit::multiline(&mut self.note)
+                .hint_text("Write a note")
+                .desired_width(f32::INFINITY)
+                .desired_rows(8)
                 .id_salt("demo-note")
                 .show(ui);
 

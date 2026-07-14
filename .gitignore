@@ -1,5 +1,12 @@
 /target
 
+# JetBrains IDE project files
+/.idea/
+
+# Python generator bytecode caches
+**/__pycache__/
+*.pyc
+
 # Dictionaries built with restrictively licensed UMLS sources (SNOMED CT,
 # MedDRA, ...) via the generator's --include-licensed switch. These are for
 # personal / authorized use only and MUST NOT be committed or redistributed.

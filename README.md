@@ -3,7 +3,9 @@
 `egui_spellcheck` provides a native-Rust [`egui`](https://github.com/emilk/egui)
 text-editing widget with embedded Hunspell spelling dictionaries and optional
 grammar hints. It works without native FFI, runtime file access, or network
-access, which makes it suitable for desktop and WebAssembly applications.
+access, which makes it suitable for desktop and WebAssembly applications (see
+[WebAssembly](#webassembly) for the small `getrandom` configuration the grammar
+feature needs on the web).
 
 [`SpellCheckTextEdit`] mirrors `egui::TextEdit`'s builder-style API while
 underlining misspelled words and offering suggestions in its context menu.
@@ -23,7 +25,7 @@ fn note_editor(ui: &mut egui::Ui, note: &mut String) {
 ```
 
 Enable the default `grammar` feature for grammar hints, the optional
-`medical` feature for bundled medical terminology, or use
+`medical-en` feature for bundled medical terminology, or use
 `default-features = false` to build a spelling-only widget.
 
 
@@ -93,7 +95,7 @@ cargo run --example spellcheck_demo --features medical-en
 | Feature | Default | Description |
 | --- | --- | --- |
 | `grammar` | Yes | Enables grammar hints through `harper-core`. Disable default features for spelling-only builds. |
-| `medical` | No | Adds the bundled medical dictionary to every widget. Increases the final binary size. |
+| `medical-en` | No | Adds the bundled medical dictionary to every widget. Increases the final binary size. |
 
 Enable medical terminology for an application with:
 
@@ -102,10 +104,50 @@ Enable medical terminology for an application with:
 egui_spellcheck = { version = "0.35.0", features = ["medical-en"] }
 ```
 
+## Startup performance
+
+Building the spelling and (especially) the grammar dictionaries is a one-time
+cost that can take a few seconds on the first check. Call
+[`prewarm`](https://docs.rs/egui_spellcheck) once at application startup to build
+these engines ahead of time so the first check doesn't stall the UI:
+
+```no_run
+// Call once at application startup, before entering the event loop.
+egui_spellcheck::prewarm();
+// ... start your eframe/egui app ...
+```
+
+On native targets the warm-up runs on a background thread; on `wasm32` it runs
+eagerly on the calling thread (browsers have no background thread to offload
+to). The call is idempotent and safe to invoke more than once.
+
+## WebAssembly
+
+The crate is WebAssembly-friendly and requires no network or file access at
+runtime. One caveat applies when the default `grammar` feature is enabled: a
+transitive dependency (`getrandom`) needs its browser backend selected for
+`wasm32-unknown-unknown`. Add the following to the consuming application:
+
+```toml
+# Cargo.toml of your wasm app
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+```
+
+and build with the matching backend flag:
+
+```sh
+RUSTFLAGS='--cfg getrandom_backend="wasm_js"' \
+  cargo build --target wasm32-unknown-unknown
+```
+
+Spelling-only builds (`default-features = false`) do not need this.
+
 ## License
 
 The `egui_spellcheck` **source code** is licensed under the
-[Mozilla Public License 2.0](LICENSE) (`MPL-2.0`), a file-level copyleft
+[Mozilla Public License 2.0](https://github.com/stocidlowski/egui_spellcheck/blob/main/LICENSE)
+(`MPL-2.0`), a file-level copyleft
 license: modifications to MPL-covered files must be shared under the MPL, but
 the crate can be combined with proprietary code in a larger work.
 

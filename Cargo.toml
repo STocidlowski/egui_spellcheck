@@ -1,5 +1,8 @@
 [package]
 name = "egui_spellcheck"
+# Version scheme: the major/minor track the supported `egui` release (0.35.x
+# targets egui 0.35), while the patch component is bumped for this crate's own
+# fixes and features within that egui line.
 version = "0.35.0"
 edition = "2024"
 rust-version = "1.92"
@@ -12,7 +15,22 @@ keywords = ["spelling", "spellcheck", "grammar", "egui"]
 categories = ["text-processing", "text-editors", "gui"]
 # The bundled dictionary data under src/spell_check/dictionaries is licensed
 # separately from this crate's MPL-2.0 code; see THIRD_PARTY_NOTICES.md.
-exclude = ["target/", ".github/"]
+# Keep the published .crate lean: ship only what's needed to build and use the
+# library. The Python dictionary generator, IDE config, CI config, build
+# artifacts, and any privately built (licensed) dictionaries stay in the git
+# repository but are excluded from the package.
+exclude = [
+    "target/",
+    ".github/",
+    ".idea/",
+    "licensed/",
+    "src/medical_dictionary_generator/",
+    "**/__pycache__/",
+]
+
+[package.metadata.docs.rs]
+# Build docs.rs with every feature so grammar/medical items are documented.
+all-features = true
 
 
 [features]
