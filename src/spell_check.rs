@@ -193,7 +193,7 @@ fn add_to_personal_dictionary(ui: &Ui, word: &str) {
 }
 
 /// Words ignored for the current session only (not persisted). Stored in egui's
-/// temp memory so they survive across frames but reset on restart.
+/// temp memory, so they survive across frames but reset on restart.
 fn session_ignored_id() -> egui::Id {
     egui::Id::new("spellcheck.session_ignored")
 }
@@ -234,7 +234,9 @@ struct ClipboardSnapshot {
 
 /// Bundles everything that decides whether a word counts as correct: which
 /// dictionaries are enabled plus the user's personal/session word lists. Built
-/// once per widget render and threaded through the tokenizer.
+/// once per widget render and threaded through the tokenizer. `Clone` so it can
+/// be handed (by value) to the background checker thread.
+#[derive(Clone)]
 struct CheckContext {
     personal: BTreeSet<String>,
     ignored: HashSet<String>,
@@ -369,7 +371,7 @@ fn push_trimmed(spans: &mut Vec<WordSpan>, text: &str, s: usize, e: usize) {
 /// Returns the byte ranges of misspelled words in `text` according to `ctx`
 /// (the base dictionary, optional feature-selected medical list, and
 /// personal/session words). If the base dictionary failed to load,
-/// `ctx.is_correct` fails open so nothing is flagged (never block typing).
+/// `ctx.is_correct` fails open, so nothing is flagged (never block typing).
 #[cfg(debug_assertions)]
 #[cfg(test)]
 fn misspelled_spans(text: &str, ctx: &CheckContext) -> Vec<WordSpan> {
@@ -688,6 +690,11 @@ struct SpellCache {
     /// debounced pass when the `grammar` feature is enabled.
     #[cfg(feature = "grammar")]
     grammar_spans: Vec<GrammarSpan>,
+    /// Set when the current `pending_key` still needs to be handed to the
+    /// background checker (native) once the debounce window elapses. Cleared
+    /// after the request is dispatched so we never spam the worker every frame.
+    /// Unused on `wasm32`, where the check runs synchronously.
+    needs_dispatch: bool,
 }
 
 fn hash_text(text: &str) -> u64 {
@@ -702,6 +709,147 @@ fn hash_text(text: &str) -> u64 {
 /// to also key the per-word memo) instead of hashing the context twice.
 fn cache_key_with_signature(text: &str, signature: u64) -> u64 {
     hash_text(text) ^ signature.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+}
+
+/// The full result of one check pass: misspelled word spans plus (when the
+/// `grammar` feature is on) harper's grammar spans. Bundled so the synchronous
+/// (`wasm32`) path and the background worker share one shape.
+#[derive(Clone, Default)]
+struct CheckOutcome {
+    spans: Vec<WordSpan>,
+    #[cfg(feature = "grammar")]
+    grammar_spans: Vec<GrammarSpan>,
+}
+
+/// Runs one full check pass over `text`: spelling (memoized per word) and, when
+/// enabled, grammar. This is the single expensive unit of work moved off the UI
+/// thread on native targets; on `wasm32` it runs inline (no worker thread).
+fn compute_check(text: &str, ctx: &CheckContext, memo: &mut HashMap<String, bool>) -> CheckOutcome {
+    let spans = misspelled_spans_memo(text, ctx, memo);
+    #[cfg(feature = "grammar")]
+    let grammar_spans = grammar_spans(text);
+    CheckOutcome {
+        spans,
+        #[cfg(feature = "grammar")]
+        grammar_spans,
+    }
+}
+
+/// Background spell/grammar checker (native only).
+///
+/// The check pass (`compute_check`) is expensive enough — dominated by harper's
+/// grammar linter — that running it inline on the UI thread visibly freezes the
+/// widget every time the user pauses typing. Here it runs on a single, shared
+/// worker thread instead: the widget dispatches the current text and keeps
+/// showing its previous spans, and adopts fresh spans once the worker reports
+/// back (waking the UI via `egui::Context::request_repaint`).
+///
+/// harper's `LintGroup` is `!Send` under its default feature set, so the linter
+/// is built and owned entirely inside the worker thread (`compute_check` /
+/// `grammar_spans` construct it there); nothing `!Send` crosses the channel.
+///
+/// Not compiled for `wasm32`: browsers have no background thread to offload to
+/// (and `std::thread::spawn` panics there), so that target keeps the synchronous
+/// path in [`SpellCheckTextEdit::show`].
+#[cfg(not(target_arch = "wasm32"))]
+mod background {
+    use super::{CheckContext, CheckOutcome, compute_check};
+    use std::collections::HashMap;
+    use std::sync::mpsc::{Receiver, Sender, channel};
+    use std::sync::{Mutex, OnceLock};
+
+    /// A unit of checking work handed to the background thread. Owns everything
+    /// the check needs so no borrow (or `!Send` value) crosses the boundary.
+    pub(super) struct Request {
+        /// Widget id (`egui::Id::value`), so results route back to the right widget.
+        pub id: u64,
+        /// Cache key (text + context) this request corresponds to.
+        pub key: u64,
+        pub text: String,
+        pub ctx: CheckContext,
+        /// Clone of the egui context, used to wake the UI when the result is ready.
+        pub egui_ctx: egui::Context,
+    }
+
+    /// The latest completed outcome for a widget id, tagged with the key it was
+    /// computed for so the UI can tell whether it still matches the on-screen text.
+    struct Completed {
+        key: u64,
+        outcome: CheckOutcome,
+    }
+
+    fn results() -> &'static Mutex<HashMap<u64, Completed>> {
+        static RESULTS: OnceLock<Mutex<HashMap<u64, Completed>>> = OnceLock::new();
+        RESULTS.get_or_init(|| Mutex::new(HashMap::new()))
+    }
+
+    fn sender() -> &'static Sender<Request> {
+        static SENDER: OnceLock<Sender<Request>> = OnceLock::new();
+        SENDER.get_or_init(|| {
+            let (tx, rx) = channel::<Request>();
+            std::thread::Builder::new()
+                .name("egui_spellcheck".to_owned())
+                .spawn(move || run(rx))
+                .expect("failed to spawn egui_spellcheck worker thread");
+            tx
+        })
+    }
+
+    /// Worker loop. Keeps a per-widget `(signature, memo)` so re-checks only pay
+    /// for newly typed words (mirroring the UI-thread memo the synchronous path
+    /// uses), and coalesces queued requests so only the most recent text per
+    /// widget is checked when several pile up during rapid typing.
+    fn run(rx: Receiver<Request>) {
+        let mut memos: HashMap<u64, (u64, HashMap<String, bool>)> = HashMap::new();
+        while let Ok(first) = rx.recv() {
+            // Drain everything already queued, keeping only the last request per id.
+            let mut latest: HashMap<u64, Request> = HashMap::new();
+            latest.insert(first.id, first);
+            while let Ok(next) = rx.try_recv() {
+                latest.insert(next.id, next);
+            }
+            for req in latest.into_values() {
+                let signature = req.ctx.signature();
+                let entry = memos
+                    .entry(req.id)
+                    .or_insert_with(|| (signature, HashMap::new()));
+                if entry.0 != signature {
+                    entry.0 = signature;
+                    entry.1.clear();
+                }
+                let outcome = compute_check(&req.text, &req.ctx, &mut entry.1);
+                results()
+                    .lock()
+                    .expect("spellcheck results mutex poisoned")
+                    .insert(
+                        req.id,
+                        Completed {
+                            key: req.key,
+                            outcome,
+                        },
+                    );
+                // Wake the UI so it polls and adopts the fresh spans.
+                req.egui_ctx.request_repaint();
+            }
+        }
+    }
+
+    /// Hand a checking request to the background thread (lazily starting it on
+    /// the first call). A failed send (worker gone) is ignored: the widget just
+    /// keeps showing its previous spans, an acceptable degradation.
+    pub(super) fn request(req: Request) {
+        let _ = sender().send(req);
+    }
+
+    /// Take the most recent completed outcome for `id`, if any, along with the
+    /// key it was computed for.
+    pub(super) fn take(id: u64) -> Option<(u64, CheckOutcome)> {
+        results()
+            .lock()
+            .expect("spellcheck results mutex poisoned")
+            .remove(&id)
+            .map(|c| (c.key, c.outcome))
+    }
 }
 
 /// A [`TextEdit`]-like widget that underlines misspelled words and offers
@@ -832,23 +980,63 @@ impl<'t> SpellCheckTextEdit<'t> {
             cache.memo.clear();
             cache.memo_signature = ctx_signature;
         }
+        // Adopt any completed background result for this widget (native only).
+        // We adopt it even when its key no longer matches the on-screen text:
+        // showing slightly stale spans beats showing none, and the dispatch
+        // logic below immediately re-checks the current text if needed.
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((done_key, outcome)) = background::take(id.value()) {
+            cache.key = done_key;
+            cache.spans = outcome.spans;
+            #[cfg(feature = "grammar")]
+            {
+                cache.grammar_spans = outcome.grammar_spans;
+            }
+            ui.data_mut(|d| d.insert_temp(id, cache.clone()));
+        }
+
         if cache.key != current_key {
             // The text/context differs from what we last checked. (Re)start the
-            // idle window whenever the pending target changes.
+            // idle window whenever the pending target changes, and flag that the
+            // new target still needs to be handed to the checker.
             if cache.pending_key != current_key {
                 cache.pending_key = current_key;
                 cache.pending_since = now;
+                cache.needs_dispatch = true;
                 ui.data_mut(|d| d.insert_temp(id, cache.clone()));
             }
             let elapsed = now - cache.pending_since;
             if elapsed >= SPELLCHECK_DEBOUNCE_SECS {
-                cache.key = current_key;
-                cache.spans = misspelled_spans_memo(self.text, &ctx, &mut cache.memo);
-                #[cfg(feature = "grammar")]
-                {
-                    cache.grammar_spans = grammar_spans(self.text);
+                // Native: run the (expensive, harper-dominated) check on the
+                // shared background thread so the UI never freezes, and keep
+                // showing the previous spans until it reports back. Dispatch at
+                // most once per pending key so we don't flood the worker.
+                #[cfg(not(target_arch = "wasm32"))]
+                if cache.needs_dispatch {
+                    cache.needs_dispatch = false;
+                    background::request(background::Request {
+                        id: id.value(),
+                        key: current_key,
+                        text: self.text.clone(),
+                        ctx: ctx.clone(),
+                        egui_ctx: ui.ctx().clone(),
+                    });
+                    ui.data_mut(|d| d.insert_temp(id, cache.clone()));
                 }
-                ui.data_mut(|d| d.insert_temp(id, cache.clone()));
+                // Wasm: no worker thread to offload to, so run the check inline
+                // (the single browser thread pays the cost here).
+                #[cfg(target_arch = "wasm32")]
+                {
+                    cache.key = current_key;
+                    cache.needs_dispatch = false;
+                    let outcome = compute_check(self.text, &ctx, &mut cache.memo);
+                    cache.spans = outcome.spans;
+                    #[cfg(feature = "grammar")]
+                    {
+                        cache.grammar_spans = outcome.grammar_spans;
+                    }
+                    ui.data_mut(|d| d.insert_temp(id, cache.clone()));
+                }
             } else {
                 // Wake up to run the deferred check once the field goes idle.
                 let remaining = SPELLCHECK_DEBOUNCE_SECS - elapsed;
@@ -1471,6 +1659,47 @@ mod tests {
         // later calls are no-ops.
         prewarm();
         prewarm();
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn background_worker_reports_spans() {
+        use std::time::{Duration, Instant};
+
+        // Dispatch a check to the shared worker thread and confirm it delivers a
+        // result tagged with the requested key that flags the misspelled word.
+        const TEXT: &str = "the quik brown fox";
+        let id = 0xE6E1_5EC0_u64;
+        let key = 0x1234_5678_u64;
+
+        background::request(background::Request {
+            id,
+            key,
+            text: TEXT.to_owned(),
+            ctx: ctx(),
+            egui_ctx: egui::Context::default(),
+        });
+
+        // The worker computes on another thread, so poll for its result.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        let (done_key, outcome) = loop {
+            if let Some(res) = background::take(id) {
+                break res;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "background check did not report a result in time"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+
+        assert_eq!(done_key, key, "result must carry the requested key");
+        let flagged: Vec<&str> = outcome
+            .spans
+            .iter()
+            .map(|s| &TEXT[s.start..s.end])
+            .collect();
+        assert_eq!(flagged, vec!["quik"], "worker should flag only 'quik'");
     }
 
     #[test]

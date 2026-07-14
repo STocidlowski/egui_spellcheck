@@ -121,6 +121,13 @@ On native targets the warm-up runs on a background thread; on `wasm32` it runs
 eagerly on the calling thread (browsers have no background thread to offload
 to). The call is idempotent and safe to invoke more than once.
 
+Beyond the one-time warm-up, the recurring per-check work (dominated by the
+grammar linter) also runs on a shared background worker thread on native
+targets: after you pause typing, the widget dispatches the check off-thread and
+keeps showing the previous underlines until the fresh results arrive, so editing
+never freezes. On `wasm32` the check runs synchronously on the single browser
+thread.
+
 ## WebAssembly
 
 The crate is WebAssembly-friendly and requires no network or file access at
