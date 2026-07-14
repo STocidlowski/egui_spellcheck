@@ -1,15 +1,15 @@
 [package]
 name = "egui_spellcheck"
-# Version scheme: the major/minor track the supported `egui` release (0.35.x
-# targets egui 0.35), while the patch component is bumped for this crate's own
-# fixes and features within that egui line.
+# Version scheme: the major/minor track the supported `egui` release (0.35.x targets egui 0.35), trying to maintain
+# parity with the version used in latest egui_extras / egui_dock while the patch component is bumped for this crate's
+# own fixes and features within that egui line.
 version = "0.35.0"
 edition = "2024"
 rust-version = "1.92"
 authors = ["Shawn Tocidlowski"]
 description = "Embedded spell-checking and optional grammar hints for egui text editors"
 readme = "README.md"
-repository = "https://github.com/stocidlowski/egui_spellcheck"
+repository = "https://github.com/STocidlowski/egui_spellcheck"
 license = "MPL-2.0"
 keywords = ["spelling", "spellcheck", "grammar", "egui"]
 categories = ["text-processing", "text-editors", "gui"]
@@ -41,6 +41,14 @@ default = ["grammar"]
 grammar = ["dep:harper-core"]
 medical-en = []
 
+
+# Optimize all profiles at opt-level 2. The spell/grammar check is heavily
+# dependency-bound (harper-core's FST work and spellbook lookups), and an
+# unoptimized `dev` build runs that code several-fold slower
+# ~10 s (dev) vs. ~2 s (release) highlighting delay. Building `dev` at opt-level 2
+# closes most of that gap at the cost of somewhat slower compile.
+[profile.dev]
+opt-level = 2
 
 [profile.release]
 opt-level = 2

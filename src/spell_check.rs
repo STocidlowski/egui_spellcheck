@@ -12,11 +12,11 @@
 //! Note: `spellbook` performs *spelling* checks only. Optional *grammar*
 //! checking is available behind the `grammar` cargo feature, which pulls in the
 //! native-Rust [`harper-core`] crate. When enabled, grammar issues are
-//! underlined in a distinct (blue) color and their fixes are offered through the
+//! underlined in a distinct (blue) color, and their fixes are offered through the
 //! same right-click context menu. Like spelling, grammar checking only ever
 //! *suggests* — it never rewrites clinical text on its own.
 //!
-//! The right-click menu also carries the standard editing actions — Cut, Copy
+//! The right-click menu also carries the standard editing actions — Cut, Copy,
 //! and Paste. Cut/Copy are enabled only when text is selected and act on the
 //! current selection. Paste is always available and delegates to egui's
 //! [`egui::ViewportCommand::RequestPaste`] (the same path as Ctrl+V), so it
@@ -29,7 +29,6 @@
 //! (see [`apply_selection_background`]), wholly independent of focus. The
 //! selection is sampled once when the menu opens and cleared when it closes, so
 //! we never re-scan the buffer every frame.
-
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -1140,6 +1139,36 @@ impl<'t> SpellCheckTextEdit<'t> {
                     (r.start.into(), r.end.into())
                 });
 
+        // egui collapses the field's stored selection to the click point on the
+        // *press* of the mouse button (inside `TextEdit::show`), a frame (or more)
+        // *before* `secondary_clicked()` fires on release. By then `prev_selection`
+        // — read from the just-collapsed state — is empty, so there would be
+        // nothing left to re-highlight while the menu is open (the "right-click
+        // clears the highlight" bug).
+        //
+        // Remembering only the *immediately* previous frame's selection is not
+        // enough: while a mouse button is held, egui commonly renders several
+        // frames between the press (which collapses the selection) and the release
+        // (which delivers `secondary_clicked`). Those intermediate frames would
+        // overwrite the remembered value with the already-collapsed selection, so
+        // by release time it is empty again — which is exactly why the earlier fix
+        // showed "no change in behavior".
+        //
+        // Instead, only refresh the remembered selection on frames where no pointer
+        // button is down. That freezes the last real selection for the entire
+        // press → hold → release of a right-click, so it is still available when the
+        // menu opens. A genuine deselect (primary click) collapses the selection and
+        // then, once the button is released, the next pointer-up frame overwrites the
+        // remembered value with the empty range, so no stale highlight lingers.
+        // Stored as a plain char range; a collapsed/empty selection is kept as
+        // `(0, 0)` and ignored by the `e > s` guards below.
+        let last_selection_id = id.with("last_selection");
+        let carried_selection: (usize, usize) =
+            ui.data(|d| d.get_temp(last_selection_id)).unwrap_or((0, 0));
+        if !ui.input(|i| i.pointer.any_down()) {
+            ui.data_mut(|d| d.insert_temp(last_selection_id, prev_selection.unwrap_or((0, 0))));
+        }
+
         let mut text_edit = if self.multiline {
             TextEdit::multiline(self.text)
         } else {
@@ -1222,8 +1251,8 @@ impl<'t> SpellCheckTextEdit<'t> {
             // A right-click collapses egui's cursor to the click point inside
             // `show`, so `output.state` no longer holds the user's highlight. Use
             // the selection captured *before* show for Cut/Copy.
-            let (sel_start, sel_end) = match prev_selection {
-                Some((s, e)) if e > s => (s.min(char_len), e.min(char_len)),
+            let (sel_start, sel_end) = match carried_selection {
+                (s, e) if e > s => (s.min(char_len), e.min(char_len)),
                 _ => (char_len, char_len),
             };
             let selection: String = self
@@ -1548,6 +1577,23 @@ fn set_caret(ui: &Ui, id: egui::Id, char_index: usize) {
     }
 }
 
+/// Restores a (non-collapsed) text selection on the field identified by `id`
+/// by editing the stored [`egui::TextEditState`]. Used before delegating a
+/// Paste to egui: a right-click collapses the field's real selection to the
+/// click point inside `show`, so without re-establishing the highlighted range
+/// the incoming paste would insert at the caret (mid-word) instead of replacing
+/// what the user had selected.
+fn set_selection(ui: &Ui, id: egui::Id, start: usize, end: usize) {
+    if let Some(mut state) = egui::widgets::text_edit::TextEditState::load(ui.ctx(), id) {
+        let range = egui::text::CCursorRange::two(
+            egui::text::CCursor::new(start),
+            egui::text::CCursor::new(end),
+        );
+        state.cursor.set_char_range(Some(range));
+        state.store(ui.ctx(), id);
+    }
+}
+
 /// Undoes the last edit to the field identified by `id`, mirroring Ctrl+Z.
 ///
 /// egui's [`TextEdit`] normally performs undo itself when it sees a Ctrl+Z key
@@ -1604,8 +1650,10 @@ fn select_all_text(ui: &Ui, id: egui::Id, text: &str) {
 /// delegates to egui's [`egui::ViewportCommand::RequestPaste`] — the same path
 /// as Ctrl+V — which pastes the real OS clipboard into the focused field. egui
 /// exposes no synchronous clipboard *read*, so there is nothing to inspect up
-/// front; we simply re-focus the field and let the integration deliver the
-/// paste.
+/// front; we re-focus the field, restore the pre-`show` selection (a right-click
+/// collapses it to the click point, which would otherwise make the paste insert
+/// mid-word instead of replacing the selection), and let the integration deliver
+/// the paste.
 fn add_clipboard_items(ui: &mut Ui, text: &mut String, snap: &ClipboardSnapshot, id: egui::Id) {
     let has_selection = !snap.selection.is_empty();
 
@@ -1646,7 +1694,20 @@ fn add_clipboard_items(ui: &mut Ui, text: &mut String, snap: &ClipboardSnapshot,
         // so instead of tracking our own copy we ask the integration to paste the
         // real clipboard into the focused field — exactly what Ctrl+V does. Keep
         // the field focused so the resulting `Event::Paste` lands here next frame.
+        //
+        // A right-click collapsed the field's real selection to the click point
+        // inside `show`, so on its own the paste would insert at that caret
+        // (mid-word) instead of replacing what the user had highlighted. Restore
+        // the selection first — but only when the snapshot still matches the live
+        // buffer — so egui's paste overwrites the selected range, as the user
+        // expects.
         ui.memory_mut(|mem| mem.request_focus(id));
+        if has_selection
+            && char_slice(text, snap.sel_start, snap.sel_end).as_deref()
+                == Some(snap.selection.as_str())
+        {
+            set_selection(ui, id, snap.sel_start, snap.sel_end);
+        }
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
         ui.close();

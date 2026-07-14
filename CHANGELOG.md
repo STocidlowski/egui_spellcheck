@@ -20,6 +20,24 @@ is bumped for this crate's own fixes and features within that egui line.
 - Project metadata for publishing: MPL-2.0 `LICENSE`, `THIRD_PARTY_NOTICES.md`,
   per-source data license documentation, and `docs.rs` all-features metadata.
 
+### Fixed
+- Pasting from the right-click context menu now replaces the highlighted text
+  instead of inserting the clipboard mid-word. A right-click collapses egui's
+  real selection to the click point inside the field's render, so the delegated
+  paste landed at that caret; the Paste action now restores the captured
+  selection (when it still matches the live buffer) before requesting the paste,
+  so egui overwrites the selected range as expected.
+- The selected text now stays highlighted while the right-click context menu is
+  open. egui collapses the field's stored selection to the click point on the
+  mouse *press* — one or more frames before the right-click is delivered on
+  release — so the selection read at that point was already empty and nothing
+  was re-highlighted. Remembering only the immediately previous frame was not
+  enough, because egui renders several frames while the button is held and those
+  frames overwrote the remembered selection with the collapsed one. The widget
+  now freezes the last real selection while any pointer button is down, so it
+  survives the full press → hold → release of a right-click and is painted while
+  the menu is open.
+
 ### Changed
 - Restructured the right-click context menu into clearly separated sections: a
   "Fix typo:" (or grammar) header with per-word/per-issue suggestions,
