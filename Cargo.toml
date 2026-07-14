@@ -61,4 +61,9 @@ log = "0.4.33"
 harper-core = { version = "2.5.0", optional = true }
 
 [dev-dependencies]
-eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "glow"] }
+# `default-features = false` drops eframe's default Linux windowing backends, so
+# `winit` would have no platform backend on Linux and fail with
+# "The platform you're compiling for is not supported by winit" (CI ubuntu-latest,
+# which builds the `spellcheck_demo` example). Re-enable both Linux backends
+# explicitly; they are no-ops on Windows/macOS.
+eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
