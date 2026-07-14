@@ -32,8 +32,9 @@ Enable the default `grammar` feature for grammar hints, the optional
 ## Features
 
 - A `TextEdit`-style builder API for single-line and multi-line editors.
-- Misspelled words are underlined and receive suggestions in the right-click
-  context menu.
+- Misspelled words are underlined and receive suggestions in a structured
+  right-click context menu that also includes dictionary actions and the
+  standard editing commands (Undo, Cut/Copy/Paste/Delete, Select All).
 - Personal words persist in egui's storage; ignored words are kept for the
   current session.
 - An optional bundled medical word list, enabled once per application with the

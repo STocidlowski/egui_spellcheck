@@ -21,6 +21,15 @@ is bumped for this crate's own fixes and features within that egui line.
   per-source data license documentation, and `docs.rs` all-features metadata.
 
 ### Changed
+- Restructured the right-click context menu into clearly separated sections: a
+  "Fix typo:" (or grammar) header with per-word/per-issue suggestions,
+  "Save … to dictionary" / "Ignore for this session", then the standard editing
+  actions — Undo, Cut/Copy/Paste/Delete, and Select All — each in its own
+  divided group. Undo and Select All drive egui's own text-edit state (mirroring
+  Ctrl+Z / Ctrl+A). Suggestions are only ever applied one at a time to the
+  clicked word/issue; there is deliberately no bulk "accept all" action, keeping
+  the "suggest-only, never mass-autocorrect clinical text" patient-safety
+  contract.
 - Spell/grammar checks now run on a shared background worker thread on native
   targets instead of inline on the UI thread, so the widget no longer freezes
   while re-checking after the user pauses typing (the previous spans stay

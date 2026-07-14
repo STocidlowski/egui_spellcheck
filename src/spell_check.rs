@@ -29,9 +29,7 @@
 //! (see [`apply_selection_background`]), wholly independent of focus. The
 //! selection is sampled once when the menu opens and cleared when it closes, so
 //! we never re-scan the buffer every frame.
-//!
-//! TODO: add "Ignore All for session" to context menu underneath ignore
-//!
+
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::OnceLock;
@@ -679,7 +677,7 @@ struct SpellCache {
     /// The recheck runs once `now - pending_since >= SPELLCHECK_DEBOUNCE_SECS`.
     pending_since: f64,
     /// Context signature the `memo` results are valid for. When the context
-    /// changes (a personal/ignored word added) the memo is cleared so stale
+    /// changes (a personal/ignored word added), the memo is cleared so stale
     /// per-word verdicts don't linger.
     memo_signature: u64,
     /// Memoized per-word check results, reused across debounced re-checks so an
@@ -1317,22 +1315,28 @@ impl<'t> SpellCheckTextEdit<'t> {
         const MENU_MIN_WIDTH: f32 = 220.0;
         let menu = response.clone().context_menu(|ui| {
             ui.set_min_width(MENU_MIN_WIDTH);
+
+            // Full-width menu button, so long suggestions and every action row
+            // are aligned and clickable across the whole menu width.
+            let button = |ui: &mut Ui, label: &str| {
+                ui.add(egui::Button::new(label).min_size(egui::vec2(ui.available_width(), 0.0)))
+            };
+
+            // Whether an issue (spelling or grammar) section was shown above the
+            // standard editing actions, so we only draw a divider when needed.
             let mut shown_issue = false;
 
-            // Spelling suggestions + dictionary actions for the clicked word.
+            // --- Spelling suggestions + dictionary actions for the clicked word.
             if !clicked.word.is_empty() {
                 shown_issue = true;
+                ui.label(egui::RichText::new("Fix typo:").weak());
+
+                let mut replacement: Option<String> = None;
                 if sugg.is_empty() {
                     ui.label("(no suggestions)");
                 }
-                let mut replacement: Option<String> = None;
                 for s in sugg.iter().take(8) {
-                    // Stretch each suggestion button to the full menu width so the
-                    // whole row is clickable and aligned.
-                    if ui
-                        .add(egui::Button::new(s).min_size(egui::vec2(ui.available_width(), 0.0)))
-                        .clicked()
-                    {
+                    if button(ui, s).clicked() {
                         replacement = Some(s.clone());
                         ui.close();
                     }
@@ -1357,49 +1361,30 @@ impl<'t> SpellCheckTextEdit<'t> {
                 // stay within the "suggest-only, never autocorrect" patient-safety
                 // contract. The cache is keyed by the context signature, so the
                 // squiggle disappears on the next frame.
-                ui.separator();
-                if ui
-                    .add(
-                        egui::Button::new(format!("Add “{}” to dictionary", clicked.word))
-                            .min_size(egui::vec2(ui.available_width(), 0.0)),
-                    )
-                    .clicked()
-                {
+                if button(ui, &format!("Save “{}” to dictionary", clicked.word)).clicked() {
                     add_to_personal_dictionary(ui, &clicked.word);
                     ui.close();
                 }
-                if ui
-                    .add(
-                        egui::Button::new("Ignore for this session")
-                            .min_size(egui::vec2(ui.available_width(), 0.0)),
-                    )
-                    .clicked()
-                {
+                if button(ui, "Ignore for this session").clicked() {
                     ignore_for_session(ui, &clicked.word);
                     ui.close();
                 }
             }
 
-            // Grammar message + replacement fixes, but only when no misspelled
+            // --- Grammar message + replacement fixes, but only when no misspelled
             // word was clicked (spelling is the more concrete fix on overlap).
             #[cfg(feature = "grammar")]
             if clicked.word.is_empty() && !grammar.original.is_empty() {
                 shown_issue = true;
-                ui.label(&grammar.message);
-                ui.separator();
+                ui.label(egui::RichText::new(&grammar.message).weak());
+
+                let mut replacement: Option<String> = None;
                 if grammar.suggestions.is_empty() {
                     ui.label("(no suggestions)");
                 }
-                let mut replacement: Option<String> = None;
                 for s in grammar.suggestions.iter().take(8) {
                     let label = if s.is_empty() { "(remove)" } else { s.as_str() };
-                    if ui
-                        .add(
-                            egui::Button::new(label)
-                                .min_size(egui::vec2(ui.available_width(), 0.0)),
-                        )
-                        .clicked()
-                    {
+                    if button(ui, label).clicked() {
                         replacement = Some(s.clone());
                         ui.close();
                     }
@@ -1419,12 +1404,27 @@ impl<'t> SpellCheckTextEdit<'t> {
                 }
             }
 
-            // Standard clipboard actions, available on every right-click. Add a
-            // separator only when an issue section precedes them.
+            // --- Standard editing actions, always present. Divider only when an
+            // issue section precedes them.
             if shown_issue {
                 ui.separator();
             }
+
+            // Undo mirrors Ctrl+Z on the field (drives egui's own undo history).
+            if button(ui, "Undo").clicked() {
+                undo_text_edit(ui, id, self.text);
+                ui.close();
+            }
+
+            ui.separator();
+            // Cut / Copy / Paste / Delete.
             add_clipboard_items(ui, self.text, &snapshot, id);
+
+            ui.separator();
+            if button(ui, "Select All").clicked() {
+                select_all_text(ui, id, self.text);
+                ui.close();
+            }
         });
 
         // Per the clipboard design, the selection/clipboard snapshot is read once
@@ -1548,12 +1548,59 @@ fn set_caret(ui: &Ui, id: egui::Id, char_index: usize) {
     }
 }
 
-/// Appends the standard Cut/Copy/Paste items to a context-menu `ui`. Cut/Copy
-/// are enabled only when text is selected (see [`ClipboardSnapshot`]) and write
-/// the selection to the OS clipboard (`copy_text`); Cut also deletes it and
-/// repositions the caret, re-checking the snapshot against the live buffer first
-/// so a buffer that shifted since the menu opened is left untouched (keeping the
-/// "never silently mangle clinical text" contract). Paste is always enabled and
+/// Undoes the last edit to the field identified by `id`, mirroring Ctrl+Z.
+///
+/// egui's [`TextEdit`] normally performs undo itself when it sees a Ctrl+Z key
+/// event during its own render. We can't inject that event after the fact (egui
+/// rebuilds the event list every frame), so instead we drive egui's own undo
+/// history directly: feed the current `(selection, text)` to the field's
+/// [`TextEditUndoer`](egui::widgets::text_edit::TextEditState::undoer) and adopt
+/// the previous state it returns, storing the mutated undoer back so a following
+/// redo (Ctrl+Y / Ctrl+Shift+Z) still works. A no-op when there's nothing to
+/// undo, so the menu item is always safe to click.
+fn undo_text_edit(ui: &Ui, id: egui::Id, text: &mut String) {
+    use egui::text::{CCursor, CCursorRange};
+    use egui::widgets::text_edit::TextEditState;
+
+    if let Some(mut state) = TextEditState::load(ui.ctx(), id) {
+        let cursor_range = state
+            .cursor
+            .char_range()
+            .unwrap_or_else(|| CCursorRange::one(CCursor::new(0)));
+        let mut undoer = state.undoer();
+        let current = (cursor_range, text.clone());
+        if let Some((new_range, new_text)) = undoer.undo(&current).cloned() {
+            *text = new_text;
+            state.set_undoer(undoer);
+            state.cursor.set_char_range(Some(new_range));
+            state.store(ui.ctx(), id);
+            ui.memory_mut(|mem| mem.request_focus(id));
+        }
+    }
+}
+
+/// Selects the entire buffer of the field identified by `id`, like Ctrl+A, and
+/// re-focuses it so the highlight is visible after the menu closes.
+fn select_all_text(ui: &Ui, id: egui::Id, text: &str) {
+    use egui::text::{CCursor, CCursorRange};
+    use egui::widgets::text_edit::TextEditState;
+
+    if let Some(mut state) = TextEditState::load(ui.ctx(), id) {
+        let end = text.chars().count();
+        let range = CCursorRange::two(CCursor::new(0), CCursor::new(end));
+        state.cursor.set_char_range(Some(range));
+        state.store(ui.ctx(), id);
+    }
+    ui.memory_mut(|mem| mem.request_focus(id));
+}
+
+/// Appends the standard Cut/Copy/Paste/Delete items to a context-menu `ui`.
+/// Cut/Copy/Delete are enabled only when text is selected (see
+/// [`ClipboardSnapshot`]); Cut/Copy write the selection to the OS clipboard
+/// (`copy_text`), while Cut and Delete also remove it and reposition the caret.
+/// All three re-check the snapshot against the live buffer first, so a buffer
+/// that shifted since the menu opened is left untouched (keeping the "never
+/// silently mangle clinical text" contract). Paste is always enabled and
 /// delegates to egui's [`egui::ViewportCommand::RequestPaste`] — the same path
 /// as Ctrl+V — which pastes the real OS clipboard into the focused field. egui
 /// exposes no synchronous clipboard *read*, so there is nothing to inspect up
@@ -1602,6 +1649,26 @@ fn add_clipboard_items(ui: &mut Ui, text: &mut String, snap: &ClipboardSnapshot,
         ui.memory_mut(|mem| mem.request_focus(id));
         ui.ctx()
             .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+        ui.close();
+    }
+
+    let delete = ui
+        .add_enabled(
+            has_selection,
+            egui::Button::new("Delete").min_size(egui::vec2(ui.available_width(), 0.0)),
+        )
+        .clicked();
+    if delete {
+        // Like Cut but without touching the clipboard: drop the selection only
+        // when the snapshot still matches the live buffer, then collapse the
+        // caret where the text was removed.
+        if char_slice(text, snap.sel_start, snap.sel_end).as_deref()
+            == Some(snap.selection.as_str())
+        {
+            let (new_text, caret) = replace_char_range(text, snap.sel_start, snap.sel_end, "");
+            *text = new_text;
+            set_caret(ui, id, caret);
+        }
         ui.close();
     }
 }
@@ -2043,5 +2110,57 @@ mod tests {
         // Out-of-range / inverted ranges yield None rather than panicking.
         assert_eq!(char_slice("hi", 0, 5), None);
         assert_eq!(char_slice("hi", 2, 1), None);
+    }
+
+    #[test]
+    fn select_all_selects_whole_buffer() {
+        use egui::widgets::text_edit::TextEditState;
+
+        egui::__run_test_ui(|ui| {
+            let id = egui::Id::new("select_all_test");
+            // The field must have some stored state for `select_all_text` to
+            // update its selection.
+            TextEditState::default().store(ui.ctx(), id);
+
+            let text = "hello world";
+            select_all_text(ui, id, text);
+
+            let state = TextEditState::load(ui.ctx(), id).expect("state stored");
+            let range = state.cursor.char_range().expect("selection was set");
+            let sorted = range.as_sorted_char_range();
+            let start: usize = sorted.start.into();
+            let end: usize = sorted.end.into();
+            assert_eq!(start, 0, "selection must start at the beginning");
+            assert_eq!(
+                end,
+                text.chars().count(),
+                "selection must reach the end of the buffer"
+            );
+        });
+    }
+
+    #[test]
+    fn undo_reverts_last_edit() {
+        use egui::text::{CCursor, CCursorRange};
+        use egui::widgets::text_edit::TextEditState;
+
+        egui::__run_test_ui(|ui| {
+            let id = egui::Id::new("undo_test");
+            let mut state = TextEditState::default();
+            // Seed egui's own undo history with a prior state ("hello") so an
+            // undo from the current text ("hello!") reverts to it, exactly as
+            // Ctrl+Z would.
+            let mut undoer = state.undoer();
+            undoer.add_undo(&(CCursorRange::one(CCursor::new(5)), "hello".to_owned()));
+            state.set_undoer(undoer);
+            state
+                .cursor
+                .set_char_range(Some(CCursorRange::one(CCursor::new(6))));
+            state.store(ui.ctx(), id);
+
+            let mut text = "hello!".to_owned();
+            undo_text_edit(ui, id, &mut text);
+            assert_eq!(text, "hello", "undo must revert to the previous state");
+        });
     }
 }
