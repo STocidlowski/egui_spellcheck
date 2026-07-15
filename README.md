@@ -10,6 +10,13 @@ feature needs on the web).
 [`SpellCheckTextEdit`] mirrors `egui::TextEdit`'s builder-style API while
 underlining misspelled words and offering suggestions in its context menu.
 
+This project began as a widget for a few personal medical projects, hence the 
+medical terminology and grammar hints.
+
+Screenshot in action (/examples/spellcheck_demo.rs)
+![Screenshot of program](/examples/screenshot.jpg)
+
+
 ## Example
 ```no_run
 use egui_spellcheck::SpellCheckTextEdit;
