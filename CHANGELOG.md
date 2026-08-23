@@ -7,7 +7,7 @@ and this project uses a version scheme whose major/minor components track the
 supported `egui` release (0.35.x targets egui 0.35), while the patch component
 is bumped for this crate's own fixes and features within that egui line.
 
-## [Unreleased]
+## Release 0.35.1
 
 ### Added
 - `prewarm()` public helper that builds the spelling and grammar engines ahead
