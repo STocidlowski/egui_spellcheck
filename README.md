@@ -60,7 +60,7 @@ To omit the optional grammar engine:
 
 ```toml
 [dependencies]
-egui_spellcheck = { version = "0.35.0", default-features = false }
+egui_spellcheck = { version = "0.35.1", default-features = false }
 ```
 
 ## Usage
@@ -109,7 +109,7 @@ Enable medical terminology for an application with:
 
 ```toml
 [dependencies]
-egui_spellcheck = { version = "0.35.0", features = ["medical-en"] }
+egui_spellcheck = { version = "0.35.1", features = ["medical-en"] }
 ```
 
 ## Startup performance
