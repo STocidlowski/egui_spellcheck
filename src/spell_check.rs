@@ -946,6 +946,12 @@ impl<'t> SpellCheckTextEdit<'t> {
     /// callers can reach the laid-out `galley`, its screen `galley_pos`, and the
     /// `cursor_range` to paint peer carets and report the local caret.
     ///
+    /// The returned response reports `changed()` for **every** buffer edit,
+    /// including those applied through the right-click context menu (accepted
+    /// spelling/grammar suggestions, Undo, Cut, Delete) — not just edits typed
+    /// into the field. Callers that persist the buffer only when the response
+    /// changed can therefore rely on that flag alone.
+    ///
     /// [`TextEditOutput`]: egui::text_edit::TextEditOutput
     pub fn show(self, ui: &mut Ui) -> egui::text_edit::TextEditOutput {
         let id = self
@@ -1194,8 +1200,8 @@ impl<'t> SpellCheckTextEdit<'t> {
 
         // Use `show` (not `ui.add`) so we get the laid-out galley and its screen
         // position, which lets us map a right-click to the exact word under the
-        // cursor.
-        let output = text_edit.show(ui);
+        // cursor. `mut` so a context-menu edit below can mark the response changed.
+        let mut output = text_edit.show(ui);
         // Keep a cheap handle to the inner `Response` for the right-click /
         // context-menu handling below; the full `output` is returned at the end
         // so callers get the galley, caret, etc. `output.response` is an
@@ -1342,6 +1348,14 @@ impl<'t> SpellCheckTextEdit<'t> {
         // button-sized width which truncates long suggestions; give it a sensible
         // minimum.
         const MENU_MIN_WIDTH: f32 = 220.0;
+        // Set when a menu action edits the buffer directly (suggestion applied,
+        // Undo, Cut, Delete). The inner `TextEdit` never sees those edits, so its
+        // response comes back with `changed() == false`; we mark the returned
+        // response ourselves so callers that persist the buffer only on
+        // `response.changed()` don't silently discard the correction. (Paste is
+        // delivered by egui as a real `Event::Paste` on the next frame and marks
+        // the response changed on its own.)
+        let mut menu_modified_text = false;
         let menu = response.clone().context_menu(|ui| {
             ui.set_min_width(MENU_MIN_WIDTH);
 
@@ -1380,8 +1394,13 @@ impl<'t> SpellCheckTextEdit<'t> {
                         && self.text.get(clicked.start..clicked.end) == Some(clicked.word.as_str())
                     {
                         *self.text = replace_span(self.text, clicked.start, clicked.end, &to);
+                        menu_modified_text = true;
                     } else {
-                        *self.text = replace_first_word(self.text, &clicked.word, &to);
+                        let new_text = replace_first_word(self.text, &clicked.word, &to);
+                        if new_text != *self.text {
+                            *self.text = new_text;
+                            menu_modified_text = true;
+                        }
                     }
                 }
 
@@ -1429,6 +1448,7 @@ impl<'t> SpellCheckTextEdit<'t> {
                             == Some(grammar.original.as_str())
                     {
                         *self.text = replace_span(self.text, grammar.start, grammar.end, &to);
+                        menu_modified_text = true;
                     }
                 }
             }
@@ -1441,13 +1461,17 @@ impl<'t> SpellCheckTextEdit<'t> {
 
             // Undo mirrors Ctrl+Z on the field (drives egui's own undo history).
             if button(ui, "Undo").clicked() {
-                undo_text_edit(ui, id, self.text);
+                if undo_text_edit(ui, id, self.text) {
+                    menu_modified_text = true;
+                }
                 ui.close();
             }
 
             ui.separator();
             // Cut / Copy / Paste / Delete.
-            add_clipboard_items(ui, self.text, &snapshot, id);
+            if add_clipboard_items(ui, self.text, &snapshot, id) {
+                menu_modified_text = true;
+            }
 
             ui.separator();
             if button(ui, "Select All").clicked() {
@@ -1461,6 +1485,14 @@ impl<'t> SpellCheckTextEdit<'t> {
         // right-click re-reads fresh state instead of reusing stale data.
         if menu.is_none() {
             ui.data_mut(|d| d.remove::<ClipboardSnapshot>(clipboard_id));
+        }
+
+        // Surface context-menu edits through the standard egui contract: without
+        // this, callers that write the buffer back only when `response.changed()`
+        // (a common pattern when editing a per-frame clone of shared state)
+        // silently lose the applied correction on the next frame.
+        if menu_modified_text {
+            output.response.response.mark_changed();
         }
 
         output
@@ -1604,7 +1636,10 @@ fn set_selection(ui: &Ui, id: egui::Id, start: usize, end: usize) {
 /// the previous state it returns, storing the mutated undoer back so a following
 /// redo (Ctrl+Y / Ctrl+Shift+Z) still works. A no-op when there's nothing to
 /// undo, so the menu item is always safe to click.
-fn undo_text_edit(ui: &Ui, id: egui::Id, text: &mut String) {
+///
+/// Returns `true` when a previous state was adopted (the buffer was mutated),
+/// so the caller can mark its response as changed.
+fn undo_text_edit(ui: &Ui, id: egui::Id, text: &mut String) -> bool {
     use egui::text::{CCursor, CCursorRange};
     use egui::widgets::text_edit::TextEditState;
 
@@ -1621,8 +1656,10 @@ fn undo_text_edit(ui: &Ui, id: egui::Id, text: &mut String) {
             state.cursor.set_char_range(Some(new_range));
             state.store(ui.ctx(), id);
             ui.memory_mut(|mem| mem.request_focus(id));
+            return true;
         }
     }
+    false
 }
 
 /// Selects the entire buffer of the field identified by `id`, like Ctrl+A, and
@@ -1654,8 +1691,19 @@ fn select_all_text(ui: &Ui, id: egui::Id, text: &str) {
 /// collapses it to the click point, which would otherwise make the paste insert
 /// mid-word instead of replacing the selection), and let the integration deliver
 /// the paste.
-fn add_clipboard_items(ui: &mut Ui, text: &mut String, snap: &ClipboardSnapshot, id: egui::Id) {
+///
+/// Returns `true` when the buffer was mutated here (Cut or Delete removed the
+/// selection), so the caller can mark its response as changed. Paste is *not*
+/// reported: it arrives as a real `Event::Paste` on a later frame and the inner
+/// `TextEdit` marks its own response changed then.
+fn add_clipboard_items(
+    ui: &mut Ui,
+    text: &mut String,
+    snap: &ClipboardSnapshot,
+    id: egui::Id,
+) -> bool {
     let has_selection = !snap.selection.is_empty();
+    let mut modified = false;
 
     let cut = ui
         .add_enabled(
@@ -1671,6 +1719,7 @@ fn add_clipboard_items(ui: &mut Ui, text: &mut String, snap: &ClipboardSnapshot,
             let (new_text, caret) = replace_char_range(text, snap.sel_start, snap.sel_end, "");
             *text = new_text;
             set_caret(ui, id, caret);
+            modified = true;
         }
         ui.close();
     }
@@ -1729,9 +1778,12 @@ fn add_clipboard_items(ui: &mut Ui, text: &mut String, snap: &ClipboardSnapshot,
             let (new_text, caret) = replace_char_range(text, snap.sel_start, snap.sel_end, "");
             *text = new_text;
             set_caret(ui, id, caret);
+            modified = true;
         }
         ui.close();
     }
+
+    modified
 }
 
 #[cfg(test)]

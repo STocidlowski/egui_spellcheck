@@ -21,6 +21,14 @@ is bumped for this crate's own fixes and features within that egui line.
   per-source data license documentation, and `docs.rs` all-features metadata.
 
 ### Fixed
+- Edits applied through the right-click context menu (accepted spelling/grammar
+  suggestions, Undo, Cut, Delete) now mark the returned response as changed.
+  Previously the buffer was rewritten without setting `response.changed()`, so
+  callers that persist the text only when the response reports a change — e.g.
+  an app editing a per-frame clone of shared state — silently discarded the
+  applied correction on the next frame. (Paste needs no marking: it is delivered
+  by egui as a real `Event::Paste` on a later frame and the field marks its own
+  response changed then.)
 - Pasting from the right-click context menu now replaces the highlighted text
   instead of inserting the clipboard mid-word. A right-click collapses egui's
   real selection to the click point inside the field's render, so the delegated

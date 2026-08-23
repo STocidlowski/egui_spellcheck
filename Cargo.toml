@@ -3,7 +3,7 @@ name = "egui_spellcheck"
 # Version scheme: the major/minor track the supported `egui` release (0.35.x targets egui 0.35), trying to maintain
 # parity with the version used in latest egui_extras / egui_dock while the patch component is bumped for this crate's
 # own fixes and features within that egui line.
-version = "0.35.0"
+version = "0.35.1"
 edition = "2024"
 rust-version = "1.92"
 authors = ["Shawn Tocidlowski"]
