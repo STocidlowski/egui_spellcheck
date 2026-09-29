@@ -22,7 +22,7 @@ struct SpellcheckDemo {
 impl Default for SpellcheckDemo {
     fn default() -> Self {
         Self {
-            title: "Follow-up note".to_owned(),
+            title: "Follow-up notee".to_owned(),
             note: "They is feeling nausia after taking metformin. Reviewed labs, Quantaferon negative.\n\nRight-click an underlined word to see spelling or grammar suggestions.".to_owned(),
         }
     }

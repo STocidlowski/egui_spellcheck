@@ -4,4 +4,4 @@
 
 mod spell_check;
 
-pub use spell_check::{SpellCheckTextEdit, prewarm};
+pub use spell_check::{SpellCheckTextEdit, prewarm, suggestions};

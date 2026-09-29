@@ -53,14 +53,14 @@ Enable the default `grammar` feature for grammar hints, the optional
 
 ```toml
 [dependencies]
-egui_spellcheck = "0.35.0"
+egui_spellcheck = "0.36.2"
 ```
 
 To omit the optional grammar engine:
 
 ```toml
 [dependencies]
-egui_spellcheck = { version = "0.35.1", default-features = false }
+egui_spellcheck = { version = "0.36.2", default-features = false }
 ```
 
 ## Usage
@@ -109,7 +109,7 @@ Enable medical terminology for an application with:
 
 ```toml
 [dependencies]
-egui_spellcheck = { version = "0.35.1", features = ["medical-en"] }
+egui_spellcheck = { version = "0.36.2", features = ["medical-en"] }
 ```
 
 ## Startup performance

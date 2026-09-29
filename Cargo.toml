@@ -1,11 +1,11 @@
 [package]
 name = "egui_spellcheck"
-# Version scheme: the major/minor track the supported `egui` release (0.35.x targets egui 0.35), trying to maintain
+# Version scheme: the major/minor track the supported `egui` release (0.36.x targets egui 0.36), trying to maintain
 # parity with the version used in latest egui_extras / egui_dock while the patch component is bumped for this crate's
 # own fixes and features within that egui line.
-version = "0.35.1"
+version = "0.36.2"
 edition = "2024"
-rust-version = "1.92"
+rust-version = "1.95"
 authors = ["Shawn Tocidlowski"]
 description = "Embedded spell-checking and optional grammar hints for egui text editors"
 readme = "README.md"
@@ -56,7 +56,7 @@ opt-level = 2
 [dependencies]
 spellbook = "0.4.2"
 serde = { version = "1.0.228", features = ["derive"] }
-egui = "0.35.0"
+egui = "0.36.2"
 log = "0.4.33"
 harper-core = { version = "2.5.0", optional = true }
 
@@ -66,4 +66,4 @@ harper-core = { version = "2.5.0", optional = true }
 # "The platform you're compiling for is not supported by winit" (CI ubuntu-latest,
 # which builds the `spellcheck_demo` example). Re-enable both Linux backends
 # explicitly; they are no-ops on Windows/macOS.
-eframe = { version = "0.35.0", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }

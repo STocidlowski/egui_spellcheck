@@ -2,10 +2,30 @@
 
 All notable changes to this project are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project uses a version scheme whose major/minor components track the
-supported `egui` release (0.35.x targets egui 0.35), while the patch component
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
+This project uses a version scheme whose major/minor components track the
+supported `egui` release (0.36.x targets egui 0.36), while the patch component
 is bumped for this crate's own fixes and features within that egui line.
+
+
+## Release 0.36.2
+
+### Changed
+
+- Updated `egui` and `eframe` to 0.36.2 and raised the minimum supported Rust
+  version to 1.95.
+
+
+## Release 0.35.2
+
+### Added
+
+- Re-exported `suggestions(word) -> Vec<String>` at the crate root. It was
+  already a public function internally (best-first spelling suggestions from
+  the same dictionaries the widget uses, safe to call from any thread), but
+  the module holding it is private, so host applications could not reach it.
+  Lets hosts build their own correction UI — e.g. a voice-driven "correct
+  that" flow — on top of the widget's dictionaries.
 
 ## Release 0.35.1
 
