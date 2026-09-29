@@ -193,3 +193,15 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 cargo test --no-default-features
 ```
+
+### Publish
+
+Test:
+```sh
+cargo publish --dry-run
+```
+
+Publish - Once you publish a version, you cannot delete it or overwrite the code
+```sh
+cargo publish
+```
