@@ -912,6 +912,8 @@ impl<'t> SpellCheckTextEdit<'t> {
         self
     }
 
+    pub(crate) const fn desired_width_hint(&self) -> Option<f32> { self.desired_width }
+
     /// Desired width (e.g. `f32::INFINITY` to fill the available space).
     #[must_use]
     pub fn desired_width(mut self, width: f32) -> Self {

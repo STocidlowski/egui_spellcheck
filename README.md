@@ -1,4 +1,4 @@
-﻿# egui_spellcheck
+# egui_spellcheck
 
 `egui_spellcheck` provides a native-Rust [`egui`](https://github.com/emilk/egui)
 text-editing widget with embedded Hunspell spelling dictionaries and optional
@@ -205,3 +205,24 @@ Publish - Once you publish a version, you cannot delete it or overwrite the code
 ```sh
 cargo publish
 ```
+
+## Optional hold-to-dictate (0.36.3)
+
+GUI compatibility remains egui/eframe 0.36.2. This crate's own patch version adds
+an opt-in UI API; existing `show()` and `Widget` callers paint no microphone.
+
+```rust,ignore
+use egui_spellcheck::{DictationControl, SpellCheckTextEdit};
+let output = SpellCheckTextEdit::multiline(text)
+    .with_dictation(DictationControl::default())
+    .show(ui);
+// The host handles output.intent (Start, Finish, Cancel) after the text borrow ends.
+// output.editor preserves the full TextEditOutput, caret and galley.
+```
+
+The same wrapper accepts `singleline`. The microphone uses a fixed gutter, appears
+on field hover/focus, and stays visible during an active request. Hold the primary
+pointer or focused Space key, release to finish, Escape/focus loss to cancel.
+The host supplies availability and Starting/Recording/Processing feedback. It must
+also cancel capture when the editor disappears or its semantic target changes.
+This crate owns no microphone, credentials, networking, LLM or document storage.
