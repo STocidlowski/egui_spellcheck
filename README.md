@@ -188,7 +188,7 @@ MPL-2.0 code. Full provenance and the applicable licenses are documented in
 Run the complete local validation suite with:
 
 ```sh
-cargo fmt --check
+cargo +nightly fmt 
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-features
 cargo test --no-default-features
